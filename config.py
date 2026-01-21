@@ -78,3 +78,7 @@ LOG_PATH = LOG_DIR / LOG_FILE
 DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY', '')
 DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 DASHSCOPE_MODEL = os.getenv('DASHSCOPE_MODEL', 'qwen-vl-max-latest')
+
+# 短信签名查询配置
+SMS_PID = os.getenv('SMS_PID', '')  # 客户PID
+SMS_SIGN_NAME = os.getenv('SMS_SIGN_NAME', '')  # 签名名称
