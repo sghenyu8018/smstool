@@ -10,25 +10,22 @@ from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 
 # 页面配置
 SIGN_QUERY_URL = "https://alicom-ops.alibaba-inc.com/dysms/dysms_sa/analyze_search/sign"
+SUCCESS_RATE_QUERY_URL = "https://alicom-ops.alibaba-inc.com/dysms/dysms_schedule_data_center/dysms_datacenter_recommend_failure"
 
 # 页面元素选择器配置（便于后期调整）
 SELECTORS = {
-    'partner_id': '#PartnerId',  # 客户PID输入框
+    'partner_id': '#PartnerId',  # 客户PID输入框（签名查询页面）
     'sign_name': '#SignName',    # 签名名称输入框
     'table_row': 'tr.dumbo-antd-0-1-18-table-row',  # 表格行
     'work_order_primary': 'div.break-all',  # 工单号（优先选择器）
     'work_order_fallback': 'td.dumbo-antd-0-1-18-table-cell',  # 工单号（备选选择器）
-
-    # 工单号主选择器，优先尝试；通常页面主要结果区域、文本内容为工单号
-    # "div.break-all" 通常用于展示内容较长、需要自动换行的工单号
-    # 'div.break-all' 是页面上用于展示工单号的主要元素，其 CSS 类 'break-all' 使文本内容自动换行，通常包含工单号字符串
-    # 'work_order_primary' 是页面上主要用于展示工单号的元素，其 CSS 选择器 'div.break-all' 表示：查找所有 class 属性包含 'break-all' 的 <div> 元素。
-    # 这里的 "break-all" 是该元素的 CSS 类名（class），用于定义样式，也方便自动化工具精确定位。
-    'work_order_primary': 'div.break-all',
-
-    # 工单号备选选择器，若主选择器无法提取到，则作为备选使用
-    # "td.dumbo-antd-0-1-18-table-cell" 可能因UI框架升级更改，需要随时调整
-    'work_order_fallback': 'td.dumbo-antd-0-1-18-table-cell',
+    
+    # 成功率查询页面选择器
+    'success_rate_pid_input': 'input[data-spm-anchor-id="5176.2020520112.0.i3.4f553efdUa3tZh"]',  # PID输入框
+    'success_rate_time_selector': 'div[data-spm-click="gostr=/aliyun_log;locaid=time"]',  # 时间选择器
+    'success_rate_time_option': 'div.obviz-base-header-btn-helper:has-text("本周（相对）")',  # 本周选项
+    'success_rate_table_row': 'div.obviz-base-easyTable-row',  # 成功率表格行
+    'success_rate_value': 'div.table-m__split-container__67f567d5 span',  # 成功率值
 }
 
 
@@ -297,6 +294,266 @@ def _parse_datetime(date_str: str) -> datetime:
     except (ValueError, AttributeError, TypeError):
         # 如果解析失败，返回最小datetime（用于排序）
         return datetime.min
+
+
+async def query_sms_success_rate(
+    page: Page,
+    pid: Optional[str] = None,
+    timeout: int = 30000
+) -> Dict[str, any]:
+    """
+    查询短信签名成功率
+    
+    Args:
+        page: Playwright Page 对象（需要已登录的会话）
+        pid: 客户PID（如果不提供，则从环境变量 SMS_PID 读取）
+        timeout: 操作超时时间（毫秒），默认30秒
+        
+    Returns:
+        Dict: 查询结果字典，包含以下字段：
+            - success (bool): 是否查询成功
+            - success_rate (Optional[str]): 成功率（成功时返回）
+            - pid (Optional[str]): 客户PID
+            - data (Optional[List]): 所有数据行（如果有多行）
+            - error (Optional[str]): 错误信息（失败时返回）
+            
+    Example:
+        >>> result = await query_sms_success_rate(page=page, pid="100000103722927")
+        >>> if result['success']:
+        ...     print(f"成功率：{result['success_rate']}%")
+        ... else:
+        ...     print(f"查询失败：{result['error']}")
+    """
+    # 如果未提供pid，从环境变量读取
+    if not pid:
+        try:
+            from config import SMS_PID
+            pid = SMS_PID
+            
+            if not pid:
+                return {
+                    'success': False,
+                    'success_rate': None,
+                    'pid': None,
+                    'data': None,
+                    'error': '客户PID未提供，请在函数参数中传入或在环境变量中配置 SMS_PID'
+                }
+        except ImportError:
+            return {
+                'success': False,
+                'success_rate': None,
+                'pid': None,
+                'data': None,
+                'error': '客户PID未提供，且无法从环境变量读取'
+            }
+    
+    try:
+        # 1. 导航到查询页面
+        print(f"正在访问成功率查询页面: {SUCCESS_RATE_QUERY_URL}")
+        await page.goto(SUCCESS_RATE_QUERY_URL, timeout=timeout, wait_until='networkidle')
+        
+        # 2. 等待页面加载完成，查找PID输入框
+        print(f"正在填写客户PID: {pid}")
+        
+        # 尝试多种方式定位PID输入框
+        pid_input = None
+        try:
+            # 方式1: 使用data-spm-anchor-id定位
+            pid_input = await page.wait_for_selector(
+                SELECTORS['success_rate_pid_input'],
+                timeout=10000,
+                state='visible'
+            )
+        except PlaywrightTimeoutError:
+            # 方式2: 查找包含"pid"标签的输入框
+            try:
+                pid_input = await page.query_selector(
+                    'span.obviz-base-filterText:has-text("pid") + * input[autocomplete="off"]'
+                )
+                if not pid_input:
+                    # 方式3: 查找所有输入框，找到在pid标签附近的
+                    pid_input = await page.query_selector(
+                        'input[autocomplete="off"][value=""]'
+                    )
+            except Exception:
+                pass
+        
+        if not pid_input:
+            return {
+                'success': False,
+                'success_rate': None,
+                'pid': pid,
+                'data': None,
+                'error': '未找到PID输入框，请检查页面结构'
+            }
+        
+        # 3. 填写PID
+        await pid_input.fill(pid)
+        await asyncio.sleep(1)  # 等待输入完成
+        
+        # 如果输入框在下拉选择器中，可能需要触发搜索或选择
+        try:
+            # 尝试按回车键或点击搜索图标
+            await pid_input.press('Enter')
+            await asyncio.sleep(1)
+        except Exception:
+            pass
+        
+        # 4. 选择时间范围（本周）
+        print("正在选择时间范围：本周")
+        try:
+            # 点击时间选择器
+            time_selector = await page.wait_for_selector(
+                SELECTORS['success_rate_time_selector'],
+                timeout=10000,
+                state='visible'
+            )
+            await time_selector.click()
+            await asyncio.sleep(1)
+            
+            # 选择"本周（相对）"
+            try:
+                # 查找包含"本周（相对）"的选项
+                time_option = await page.wait_for_selector(
+                    SELECTORS['success_rate_time_option'],
+                    timeout=5000,
+                    state='visible'
+                )
+                await time_option.click()
+                print("已选择时间范围：本周（相对）")
+                await asyncio.sleep(2)  # 等待数据加载
+            except PlaywrightTimeoutError:
+                # 如果找不到，尝试直接点击包含"本周"文本的元素
+                try:
+                    week_option = await page.locator('text=本周').first
+                    await week_option.click()
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    print(f"选择时间范围时出现问题: {e}")
+        except Exception as e:
+            print(f"点击时间选择器时出现问题: {e}")
+            # 继续执行，可能时间选择器不是必需的
+        
+        # 5. 等待数据加载并提取成功率
+        print("等待数据加载...")
+        await asyncio.sleep(3)  # 等待表格数据加载
+        
+        # 6. 从表格中提取数据
+        success_rate = None
+        all_data = []
+        
+        try:
+            # 查找所有表格行
+            table_rows = await page.query_selector_all(SELECTORS['success_rate_table_row'])
+            
+            if table_rows and len(table_rows) > 0:
+                print(f"找到 {len(table_rows)} 行数据")
+                
+                for idx, row in enumerate(table_rows):
+                    try:
+                        # 获取该行的所有单元格
+                        cells = await row.query_selector_all('div.obviz-base-easyTable-cell')
+                        
+                        if cells and len(cells) >= 11:
+                            # 根据HTML结构，提取各列数据
+                            row_data = {}
+                            try:
+                                # 第1列: PID
+                                cell1_text = await cells[0].inner_text()
+                                row_data['pid'] = cell1_text.strip()
+                                
+                                # 第2列: 签名名称
+                                cell2_text = await cells[1].inner_text()
+                                row_data['sign_name'] = cell2_text.strip()
+                                
+                                # 第3列: 模板类型
+                                cell3_text = await cells[2].inner_text()
+                                row_data['template_type'] = cell3_text.strip()
+                                
+                                # 第4-11列: 各种统计数据
+                                row_data['total_sent'] = await cells[3].inner_text() if len(cells) > 3 else ''
+                                row_data['total_success'] = await cells[4].inner_text() if len(cells) > 4 else ''
+                                row_data['total_failed'] = await cells[5].inner_text() if len(cells) > 5 else ''
+                                
+                                # 提取成功率（可能是第8列，包含百分比的数值）
+                                # 查找包含百分比的单元格
+                                for i in range(6, min(11, len(cells))):
+                                    cell_text = await cells[i].inner_text()
+                                    # 检查是否是百分比格式（包含小数点的数字）
+                                    if re.match(r'^\d+\.\d+$', cell_text.strip()):
+                                        if not success_rate or idx == 0:
+                                            success_rate = cell_text.strip()
+                                        row_data['success_rate'] = cell_text.strip()
+                                        break
+                                
+                                all_data.append(row_data)
+                                print(f"  行 {idx+1}: PID={row_data.get('pid', '')}, 签名={row_data.get('sign_name', '')}, 成功率={row_data.get('success_rate', 'N/A')}%")
+                            except Exception as e:
+                                print(f"  处理第 {idx+1} 行时出错: {e}")
+                                continue
+                    except Exception as e:
+                        print(f"  解析第 {idx+1} 行时出错: {e}")
+                        continue
+            else:
+                # 如果没有找到表格行，尝试其他方式提取成功率
+                try:
+                    success_rate_elements = await page.query_selector_all(SELECTORS['success_rate_value'])
+                    for element in success_rate_elements:
+                        text = await element.inner_text()
+                        # 检查是否是百分比格式
+                        if re.match(r'^\d+\.\d+$', text.strip()):
+                            success_rate = text.strip()
+                            print(f"找到成功率: {success_rate}%")
+                            break
+                except Exception as e:
+                    print(f"尝试其他方式提取成功率时出错: {e}")
+        
+        except Exception as e:
+            print(f"提取数据时出错: {e}")
+        
+        # 7. 检查是否成功提取到成功率
+        if success_rate or all_data:
+            result = {
+                'success': True,
+                'success_rate': success_rate or (all_data[0].get('success_rate') if all_data else None),
+                'pid': pid,
+                'data': all_data if all_data else None,
+                'error': None
+            }
+            
+            if all_data:
+                result['total_count'] = len(all_data)
+            
+            return result
+        else:
+            return {
+                'success': False,
+                'success_rate': None,
+                'pid': pid,
+                'data': None,
+                'error': '未能从页面中提取到成功率数据，请检查查询条件和页面结构'
+            }
+            
+    except PlaywrightTimeoutError as e:
+        error_msg = f"操作超时（超过 {timeout/1000} 秒）: {str(e)}"
+        print(f"错误: {error_msg}")
+        return {
+            'success': False,
+            'success_rate': None,
+            'pid': pid,
+            'data': None,
+            'error': error_msg
+        }
+    except Exception as e:
+        error_msg = f"查询过程中发生错误: {str(e)}"
+        print(f"错误: {error_msg}")
+        return {
+            'success': False,
+            'success_rate': None,
+            'pid': pid,
+            'data': None,
+            'error': error_msg
+        }
 
 
 # 扩展接口：可以方便地添加其他查询功能

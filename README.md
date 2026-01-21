@@ -2,12 +2,14 @@
 
 ## 项目简介
 
-这是一个基于 Playwright 的自动化工具，用于查询阿里巴巴内部短信签名相关的工单号。工具支持自动登录、会话管理和可扩展的查询功能，便于后期添加其他业务功能。
+这是一个基于 Playwright 的自动化工具，用于查询阿里巴巴内部短信签名相关的工单号和成功率。工具支持自动登录、会话管理和可扩展的查询功能，便于后期添加其他业务功能。
 
 ## 功能特性
 
 - ✅ **自动登录**：支持 SSO 自动登录，会话自动保存和恢复
 - ✅ **短信签名查询**：根据客户 PID 和签名名称查询工单号
+- ✅ **成功率查询**：查询短信签名的成功率统计数据
+- ✅ **多行数据支持**：自动识别多行工单号，选择最新的数据
 - ✅ **会话管理**：自动管理浏览器会话，支持24小时有效期验证
 - ✅ **可扩展设计**：模块化架构，便于添加新的查询功能
 - ✅ **错误处理**：完善的异常处理和用户友好的错误提示
@@ -66,6 +68,8 @@ SSO_PASSWORD=your_password
 |--------|------|---------|--------|
 | `SSO_USERNAME` | SSO 用户名 | 是 | - |
 | `SSO_PASSWORD` | SSO 密码 | 是 | - |
+| `SMS_PID` | 客户PID（用于查询） | 否 | - |
+| `SMS_SIGN_NAME` | 签名名称（用于查询） | 否 | - |
 | `SESSION_FILE` | 会话文件名 | 否 | `aliyun_session.json` |
 | `HEADLESS` | 是否无头模式 | 否 | `False` |
 | `BROWSER_TYPE` | 浏览器类型 | 否 | `chromium` |
@@ -170,6 +174,43 @@ async def batch_query():
 asyncio.run(batch_query())
 ```
 
+### 成功率查询示例
+
+```python
+import asyncio
+from login_module import create_playwright_session
+from sms_signature_query import query_sms_success_rate
+
+async def query_success_rate():
+    # 创建会话
+    playwright, browser, context, page = await create_playwright_session(headless=False)
+    
+    try:
+        # 执行成功率查询（如果不传参数，会从环境变量读取PID）
+        result = await query_sms_success_rate(page=page, pid="100000103722927")
+        
+        # 处理结果
+        if result['success']:
+            print(f"✓ 查询成功！")
+            print(f"成功率: {result['success_rate']}%")
+            
+            # 如果有多行数据，显示所有数据
+            if result.get('data'):
+                print(f"\n共找到 {result.get('total_count', 0)} 条记录:")
+                for i, row in enumerate(result['data'], 1):
+                    print(f"  {i}. 签名: {row.get('sign_name', 'N/A')}, "
+                          f"成功率: {row.get('success_rate', 'N/A')}%")
+        else:
+            print(f"✗ 查询失败: {result['error']}")
+            
+    finally:
+        await context.close()
+        await browser.close()
+        await playwright.stop()
+
+asyncio.run(query_success_rate())
+```
+
 ## 模块说明
 
 ### login_module.py
@@ -197,20 +238,43 @@ playwright, browser, context, page = await create_playwright_session(
 短信签名查询模块，提供查询功能。
 
 **主要函数：**
-- `query_sms_signature(page, pid, sign_name)` - 查询短信签名并获取工单号
 
-**返回值：**
-```python
-{
-    'success': bool,           # 是否查询成功
-    'work_order_id': str,      # 工单号（成功时）
-    'error': str              # 错误信息（失败时）
-}
-```
+1. **`query_sms_signature(page, pid, sign_name)`** - 查询短信签名并获取工单号
+   - 支持多行工单号查询
+   - 根据修改时间自动选择最新的工单号
+   - 可从环境变量读取参数
+
+   **返回值：**
+   ```python
+   {
+       'success': bool,           # 是否查询成功
+       'work_order_id': str,      # 工单号（成功时，最新的）
+       'all_work_orders': List,   # 所有工单号列表（如果有）
+       'total_count': int,        # 工单号总数
+       'error': str               # 错误信息（失败时）
+   }
+   ```
+
+2. **`query_sms_success_rate(page, pid)`** - 查询短信签名成功率
+   - 自动选择时间范围（本周）
+   - 返回详细的统计数据
+
+   **返回值：**
+   ```python
+   {
+       'success': bool,           # 是否查询成功
+       'success_rate': str,       # 成功率（百分比）
+       'pid': str,                # 客户PID
+       'data': List[Dict],        # 所有数据行（包含详细信息）
+       'total_count': int,        # 数据行总数
+       'error': str               # 错误信息（失败时）
+   }
+   ```
 
 **配置：**
 - 页面 URL 和元素选择器可在模块顶部配置
 - 支持自定义超时时间
+- 支持从环境变量读取 PID 和签名名称
 
 ### config.py
 
@@ -377,6 +441,7 @@ smstool/
 ├── session_manager.py       # 会话管理模块
 ├── requirements.txt         # Python 依赖
 ├── README.md                # 项目文档
+├── CHANGELOG.md             # 更新日志
 ├── .env.example             # 环境变量示例
 ├── session/                 # 会话文件目录
 └── logs/                    # 日志文件目录
