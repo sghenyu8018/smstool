@@ -1,0 +1,20 @@
+# Aliyun SLS Log Download Tool Dependencies
+
+# Browser automation
+playwright>=1.40.0
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# Async file operations
+aiofiles>=23.0.0
+
+# HTTP client for API requests
+aiohttp>=3.9.0
+
+# browser-use library (required for intelligent operations)
+# 固定版本为 0.2.7，因为新版本 API 有较大变化
+browser-use==0.2.7
+
+# LangChain for LLM integration
+langchain-openai>=0.1.0
