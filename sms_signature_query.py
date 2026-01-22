@@ -86,12 +86,27 @@ async def query_sms_signature(
     try:
         # 1. 导航到查询页面
         print(f"正在访问查询页面: {SIGN_QUERY_URL}")
-        await page.goto(SIGN_QUERY_URL, timeout=timeout, wait_until='domcontentloaded   ')
+        # 1. 跳转到短信签名查询页面
+        #  - 使用 Playwright 的 goto 方法访问指定查询页面 URL。
+        #  - timeout: 本次跳转的超时限制，单位为毫秒。
+        #  - wait_until='domcontentloaded   ' 保证页面 DOM 结构加载完成（注：参数多了空格，实际建议为 'domcontentloaded'）。
+        await page.goto(SIGN_QUERY_URL, timeout=timeout, wait_until='domcontentloaded')
         
-        # 2. 等待页面加载完成，确保输入框可见
+        # 2. 等待页面加载完成，确保客户PID输入框元素可见
+        #  - 使用 wait_for_selector 方法等待 SELECTORS['partner_id'] 指定的元素（PID 输入框）变为可见状态
+        #  - timeout: 最长等待时间（毫秒）
+        # 注意：页面上的输入框实际上并没有"id=partner_id"或者类似“partner_id”字样
+        # 这里只是我们在 SELECTORS 中自定义的 key，用于便于书写和维护。
+        # SELECTORS['partner_id'] 实际存储的是用于定位“客户PID”输入框的 CSS 选择器，
+        # 比如 'span.obviz-base-filterInput input[autocomplete="off"]'
+        # 这个选择器意思是：查找 class 为 obviz-base-filterInput 的 span 内部 autocomplete="off" 的 input 框
+        # 所以，通过 SELECTORS['partner_id'] 能够定位到页面上的“客户PID”输入框
         await page.wait_for_selector(SELECTORS['partner_id'], timeout=timeout, state='visible')
         
         # 3. 填写客户PID
+        #  - 打印当前填写的 PID 信息到控制台用于调试
+        #  - 使用 fill 方法向 PID 输入框内填入传入的 pid 值
+        #  - 随后等待 0.5 秒（500ms），模拟人类输入，避免被风控。
         print(f"正在填写客户PID: {pid}")
         await page.fill(SELECTORS['partner_id'], pid)
         await asyncio.sleep(0.5)  # 模拟人类操作，等待一下
@@ -384,16 +399,33 @@ async def query_sms_success_rate(
         print(f"步骤3: 查找并填写客户PID: {pid}")
         print(f"{'='*60}")
         
+        # 等待页面完全加载
+        print("\n等待页面完全加载...")
+        await asyncio.sleep(3)  # 增加等待时间，确保动态内容加载完成
+        
+        # 检查是否有iframe
+        print("检查页面中是否有iframe...")
+        iframes = page.frames
+        print(f"  - 找到 {len(iframes)} 个frame（包括主frame）")
+        for idx, frame in enumerate(iframes):
+            url = frame.url
+            name = frame.name or 'unnamed'
+            print(f"    Frame {idx}: name='{name}', url='{url[:100]}...' if len(url) > 100 else url")
+        
         # 尝试多种方式定位PID输入框
         pid_input = None
+        current_frame = page  # 默认使用主frame
         
-        # 方式1: 使用locator通过pid标签文本定位
-        print("\n[方式1] 使用locator通过pid标签文本定位...")
+        # 方式0: 先尝试在主frame中查找
+        print("\n[方式0] 在主frame中查找PID输入框...")
         try:
+            print("  - 等待页面元素加载...")
+            await asyncio.sleep(2)  # 额外等待
+            
             print("  - 查找包含'pid'文本的标签...")
             pid_label_locator = page.locator('span.obviz-base-filterText').filter(has_text='pid')
             count = await pid_label_locator.count()
-            print(f"  - 找到 {count} 个pid标签")
+            print(f"  - 在主frame中找到 {count} 个pid标签")
             
             if count > 0:
                 # 找到pid标签后，向上找到父容器，再向下找输入框
@@ -411,7 +443,7 @@ async def query_sms_success_rate(
                         pid_input = await input_locator.first.element_handle()
                         is_visible = await pid_input.is_visible()
                         value = await pid_input.get_attribute('value') or ''
-                        print(f"  ✓ 通过方式1找到PID输入框 (可见: {is_visible}, 当前值: '{value}')")
+                        print(f"  ✓ 通过方式0找到PID输入框 (可见: {is_visible}, 当前值: '{value}')")
                     else:
                         print(f"  ✗ 容器内未找到输入框")
                 else:
@@ -419,7 +451,38 @@ async def query_sms_success_rate(
             else:
                 print(f"  ✗ 未找到pid标签")
         except Exception as e:
-            print(f"  ✗ 方式1定位失败: {type(e).__name__} - {str(e)}")
+            print(f"  ✗ 方式0定位失败: {type(e).__name__} - {str(e)}")
+        
+        # 方式1: 使用locator通过pid标签文本定位
+        if not pid_input:
+            print("\n[方式1] 使用locator通过pid标签文本定位...")
+            try:
+                print("  - 查找包含'pid'文本的标签...")
+                pid_label_locator = page.locator('span.obviz-base-filterText').filter(has_text='pid')
+                count = await pid_label_locator.count()
+                print(f"  - 找到 {count} 个pid标签")
+                
+                if count > 0:
+                    # 找到pid标签后，向上找到父容器，再向下找输入框
+                    print("  - 通过父容器查找输入框...")
+                    container_locator = pid_label_locator.locator('xpath=ancestor::div[contains(@class, "obviz-base-easy-select-inner")]')
+                    container_count = await container_locator.count()
+                    print(f"  - 找到 {container_count} 个父容器")
+                    
+                    if container_count > 0:
+                        input_locator = container_locator.locator('span.obviz-base-filterInput input[autocomplete="off"]')
+                        input_count = await input_locator.count()
+                        print(f"  - 在容器内找到 {input_count} 个输入框")
+                        
+                        if input_count > 0:
+                            pid_input = await input_locator.first.element_handle()
+                            is_visible = await pid_input.is_visible()
+                            value = await pid_input.get_attribute('value') or ''
+                            print(f"  ✓ 通过方式1找到PID输入框 (可见: {is_visible}, 当前值: '{value}')")
+                    else:
+                        print(f"  ✗ 容器内未找到输入框")
+            except Exception as e:
+                print(f"  ✗ 方式1定位失败: {type(e).__name__} - {str(e)}")
         
         # 方式2: 使用locator通过CSS选择器定位
         if not pid_input:
@@ -585,6 +648,80 @@ async def query_sms_success_rate(
             except Exception as e:
                 print(f"  ✗ 方式7定位失败: {type(e).__name__} - {str(e)}")
         
+        # 方式8: 在iframe中查找（如果主frame中找不到）
+        if not pid_input and len(iframes) > 1:
+            print("\n[方式8] 在iframe中查找PID输入框...")
+            for idx, frame in enumerate(iframes):
+                if frame == page.main_frame:
+                    continue  # 跳过主frame，已经查找过了
+                
+                try:
+                    print(f"  - 检查iframe {idx} (name='{frame.name or 'unnamed'}')...")
+                    
+                    # 等待iframe加载
+                    await frame.wait_for_load_state('domcontentloaded', timeout=5000)
+                    
+                    # 在iframe中查找pid标签
+                    pid_label_locator = frame.locator('span.obviz-base-filterText').filter(has_text='pid')
+                    count = await pid_label_locator.count()
+                    print(f"    - 在iframe中找到 {count} 个pid标签")
+                    
+                    if count > 0:
+                        # 找到pid标签后，查找输入框
+                        container_locator = pid_label_locator.locator('xpath=ancestor::div[contains(@class, "obviz-base-easy-select-inner")]')
+                        container_count = await container_locator.count()
+                        print(f"    - 找到 {container_count} 个父容器")
+                        
+                        if container_count > 0:
+                            input_locator = container_locator.locator('span.obviz-base-filterInput input[autocomplete="off"]')
+                            input_count = await input_locator.count()
+                            print(f"    - 在容器内找到 {input_count} 个输入框")
+                            
+                            if input_count > 0:
+                                pid_input = await input_locator.first.element_handle()
+                                current_frame = frame
+                                is_visible = await pid_input.is_visible()
+                                value = await pid_input.get_attribute('value') or ''
+                                print(f"  ✓ 在iframe {idx}中找到PID输入框 (可见: {is_visible}, 当前值: '{value}')")
+                                break
+                except Exception as e:
+                    print(f"    - iframe {idx} 查找失败: {type(e).__name__} - {str(e)}")
+                    continue
+        
+        # 方式9: 在所有frame中查找所有输入框
+        if not pid_input:
+            print("\n[方式9] 在所有frame中查找所有输入框...")
+            for idx, frame in enumerate(iframes):
+                try:
+                    print(f"  - 在frame {idx}中查找...")
+                    await frame.wait_for_load_state('domcontentloaded', timeout=3000)
+                    
+                    all_inputs = await frame.query_selector_all('span.obviz-base-filterInput input[autocomplete="off"]')
+                    print(f"    - 找到 {len(all_inputs)} 个输入框")
+                    
+                    for inp_idx, inp in enumerate(all_inputs, 1):
+                        is_visible = await inp.is_visible()
+                        if is_visible:
+                            # 检查是否在pid容器内
+                            is_pid_input = await inp.evaluate('''el => {
+                                const container = el.closest("div.obviz-base-easy-select-inner");
+                                if (!container) return false;
+                                const pidLabel = container.querySelector('span.obviz-base-filterText');
+                                return pidLabel && pidLabel.textContent.trim().toLowerCase() === 'pid';
+                            }''')
+                            
+                            if is_pid_input:
+                                pid_input = inp
+                                current_frame = frame
+                                print(f"  ✓ 在frame {idx}的输入框 {inp_idx}中找到PID输入框")
+                                break
+                    
+                    if pid_input:
+                        break
+                except Exception as e:
+                    print(f"    - frame {idx} 查找失败: {type(e).__name__} - {str(e)}")
+                    continue
+        
         # 最终检查
         print(f"\n{'='*60}")
         if not pid_input:
@@ -617,9 +754,17 @@ async def query_sms_success_rate(
             print("✓ PID输入框定位成功")
             print(f"{'='*60}\n")
         
-        # 3. 填写PID
+        # 4. 填写PID（使用找到的frame）
+        print(f"\n开始填写PID到输入框...")
+        if current_frame != page:
+            print(f"  注意: 输入框在iframe中，将使用iframe进行操作")
+        
         await pid_input.fill(pid)
         await asyncio.sleep(1)  # 等待输入完成
+        
+        # 验证输入是否成功
+        value_after = await pid_input.get_attribute('value') or ''
+        print(f"  ✓ PID已填写，当前值: '{value_after}'")
         
         # 如果输入框在下拉选择器中，可能需要触发搜索或选择
         try:
