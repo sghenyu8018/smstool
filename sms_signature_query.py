@@ -21,6 +21,7 @@ SELECTORS = {
     'work_order_fallback': 'td.dumbo-antd-0-1-18-table-cell',  # 工单号（备选选择器）
     
     # 成功率查询页面选择器
+    'success_rate_menu_item': 'div.MenuItem___2wtEa:has-text("求德大盘")',  # 求德大盘菜单项
     'success_rate_pid_input': 'input[data-spm-anchor-id="5176.2020520112.0.i3.4f553efdUa3tZh"]',  # PID输入框
     'success_rate_time_selector': 'div[data-spm-click="gostr=/aliyun_log;locaid=time"]',  # 时间选择器
     'success_rate_time_option': 'div.obviz-base-header-btn-helper:has-text("本周（相对）")',  # 本周选项
@@ -352,7 +353,33 @@ async def query_sms_success_rate(
         print(f"正在访问成功率查询页面: {SUCCESS_RATE_QUERY_URL}")
         await page.goto(SUCCESS_RATE_QUERY_URL, timeout=timeout, wait_until='networkidle')
         
-        # 2. 等待页面加载完成，查找PID输入框
+        # 2. 点击"求德大盘"菜单项
+        print("正在点击'求德大盘'菜单项...")
+        try:
+            # 等待菜单项出现
+            menu_item = await page.wait_for_selector(
+                SELECTORS['success_rate_menu_item'],
+                timeout=10000,
+                state='visible'
+            )
+            await menu_item.click()
+            print("已点击'求德大盘'菜单项")
+            await asyncio.sleep(2)  # 等待页面切换/加载
+        except PlaywrightTimeoutError:
+            # 如果找不到精确选择器，尝试其他方式
+            try:
+                # 尝试通过文本内容查找
+                menu_item = await page.locator('text=求德大盘').first
+                if await menu_item.is_visible():
+                    await menu_item.click()
+                    print("已点击'求德大盘'菜单项（通过文本定位）")
+                    await asyncio.sleep(2)
+                else:
+                    print("警告: 未找到'求德大盘'菜单项，继续执行...")
+            except Exception as e:
+                print(f"点击'求德大盘'菜单项时出现问题: {e}，继续执行...")
+        
+        # 3. 等待页面加载完成，查找PID输入框
         print(f"正在填写客户PID: {pid}")
         
         # 尝试多种方式定位PID输入框
