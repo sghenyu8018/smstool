@@ -86,7 +86,7 @@ async def query_sms_signature(
     try:
         # 1. 导航到查询页面
         print(f"正在访问查询页面: {SIGN_QUERY_URL}")
-        await page.goto(SIGN_QUERY_URL, timeout=timeout, wait_until='networkidle')
+        await page.goto(SIGN_QUERY_URL, timeout=timeout, wait_until='domcontentloaded')
         
         # 2. 等待页面加载完成，确保输入框可见
         await page.wait_for_selector(SELECTORS['partner_id'], timeout=timeout, state='visible')
@@ -225,6 +225,28 @@ async def query_sms_signature(
                 result['all_work_orders'] = work_order_data
                 result['total_count'] = len(work_order_data)
             
+            # 查询完工单号后，调用成功率查询
+            print("\n开始查询短信签名成功率...")
+            try:
+                success_rate_result = await query_sms_success_rate(
+                    page=page,
+                    pid=pid,
+                    timeout=timeout
+                )
+                
+                # 将成功率查询结果添加到返回结果中
+                if success_rate_result['success']:
+                    result['success_rate'] = success_rate_result.get('success_rate')
+                    result['success_rate_data'] = success_rate_result.get('data')
+                    result['success_rate_total_count'] = success_rate_result.get('total_count')
+                    print(f"成功率查询成功: {result['success_rate']}%")
+                else:
+                    result['success_rate_error'] = success_rate_result.get('error')
+                    print(f"成功率查询失败: {result['success_rate_error']}")
+            except Exception as e:
+                result['success_rate_error'] = f"查询成功率时发生异常: {str(e)}"
+                print(f"查询成功率时发生异常: {e}")
+            
             return result
         else:
             return {
@@ -351,7 +373,7 @@ async def query_sms_success_rate(
     try:
         # 1. 导航到查询页面
         print(f"正在访问成功率查询页面: {SUCCESS_RATE_QUERY_URL}")
-        await page.goto(SUCCESS_RATE_QUERY_URL, timeout=timeout, wait_until='networkidle')
+        await page.goto(SUCCESS_RATE_QUERY_URL, timeout=timeout, wait_until='domcontentloaded')
         
         # 2. 点击"求德大盘"菜单项
         print("正在点击'求德大盘'菜单项...")
@@ -618,44 +640,3 @@ class SMSQueryBase:
         """
         self.selectors.update(kwargs)
 
-
-if __name__ == '__main__':
-    """
-    示例：使用短信签名查询功能
-    """
-    import asyncio
-    from login_module import create_playwright_session
-    
-    async def main():
-        # 创建已登录的会话
-        print("正在创建浏览器会话...")
-        playwright, browser, context, page = await create_playwright_session(headless=False)
-        print("浏览器会话已创建")
-        
-        try:
-            # 执行查询（如果不传参数，会从环境变量读取）
-            result = await query_sms_signature(page=page)
-            
-            # 处理结果
-            if result['success']:
-                print(f"\n[OK] 查询成功！")
-                print(f"工单号（最新）: {result['work_order_id']}")
-                
-                # 如果有多行数据，显示所有工单号
-                if 'all_work_orders' in result and result['all_work_orders']:
-                    print(f"\n共找到 {result['total_count']} 个工单号:")
-                    for i, wo in enumerate(result['all_work_orders'], 1):
-                        print(f"  {i}. 工单号: {wo['work_order_id']}, 修改时间: {wo['modify_time']}")
-            else:
-                print(f"\n[FAIL] 查询失败: {result['error']}")
-                
-        finally:
-            # 清理资源
-            print("\n正在关闭浏览器...")
-            await context.close()
-            await browser.close()
-            await playwright.stop()
-            print("已关闭浏览器")
-    
-    # 运行示例
-    asyncio.run(main())
