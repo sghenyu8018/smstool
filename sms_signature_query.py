@@ -22,7 +22,7 @@ SELECTORS = {
     
     # 成功率查询页面选择器
     'success_rate_menu_item': 'div.MenuItem___2wtEa:has-text("求德大盘")',  # 求德大盘菜单项
-    'success_rate_pid_input': 'input[data-spm-anchor-id="5176.2020520112.0.i3.4f553efdUa3tZh"]',  # PID输入框
+    'success_rate_pid_input': 'span.obviz-base-filterText:has-text("pid") ~ * span.obviz-base-filterInput input[autocomplete="off"]',  # PID输入框
     'success_rate_time_selector': 'div[data-spm-click="gostr=/aliyun_log;locaid=time"]',  # 时间选择器
     'success_rate_time_option': 'div.obviz-base-header-btn-helper:has-text("本周（相对）")',  # 本周选项
     'success_rate_table_row': 'div.obviz-base-easyTable-row',  # 成功率表格行
@@ -53,12 +53,12 @@ async def query_sms_signature(
             - all_work_orders (Optional[List]): 所有找到的工单号列表（如果有多行）
             - total_count (Optional[int]): 工单号总数
             
-    Example:
-        >>> result = await query_sms_signature(page, "100000103722927", "国能e购")
-        >>> if result['success']:
-        ...     print(f"工单号：{result['work_order_id']}")
-        ... else:
-        ...     print(f"查询失败：{result['error']}")
+    # Example:
+    #     >>> result = await query_sms_signature(page, "100000103722927", "国能e购")
+    #     >>> if result['success']:
+    #     ...     print(f"工单号：{result['work_order_id']}")
+    #     ... else:
+    #     ...     print(f"查询失败：{result['error']}")
     """
     # 如果未提供pid或sign_name，从环境变量读取
     if not pid or not sign_name:
@@ -318,12 +318,12 @@ async def query_sms_success_rate(
             - data (Optional[List]): 所有数据行（如果有多行）
             - error (Optional[str]): 错误信息（失败时返回）
             
-    Example:
-        >>> result = await query_sms_success_rate(page=page, pid="100000103722927")
-        >>> if result['success']:
-        ...     print(f"成功率：{result['success_rate']}%")
-        ... else:
-        ...     print(f"查询失败：{result['error']}")
+    # Example:
+    #     >>> result = await query_sms_success_rate(page=page, pid="100000103722927")
+    #     >>> if result['success']:
+    #     ...     print(f"成功率：{result['success_rate']}%")
+    #     ... else:
+    #     ...     print(f"查询失败：{result['error']}")
     """
     # 如果未提供pid，从环境变量读取
     if not pid:
@@ -384,26 +384,58 @@ async def query_sms_success_rate(
         
         # 尝试多种方式定位PID输入框
         pid_input = None
+        
+        # 方式1: 通过包含pid标签的容器查找输入框（最可靠）
         try:
-            # 方式1: 使用data-spm-anchor-id定位
-            pid_input = await page.wait_for_selector(
-                SELECTORS['success_rate_pid_input'],
+            # 等待包含pid标签的容器出现
+            await page.wait_for_selector(
+                'span.obviz-base-filterText:has-text("pid")',
                 timeout=10000,
                 state='visible'
             )
-        except PlaywrightTimeoutError:
-            # 方式2: 查找包含"pid"标签的输入框
+            
+            # 使用locator查找：先找到pid标签，然后找到其父容器，再找输入框
+            pid_input_locator = page.locator('div.obviz-base-easy-select-inner:has(span.obviz-base-filterText:has-text("pid")) span.obviz-base-filterInput input[autocomplete="off"]')
+            
+            if await pid_input_locator.count() > 0:
+                pid_input = await pid_input_locator.first.element_handle()
+                print("通过方式1找到PID输入框")
+        except Exception as e:
+            print(f"方式1定位失败: {e}")
+        
+        # 方式2: 直接查找所有filterInput内的输入框，然后检查是否在pid容器内
+        if not pid_input:
             try:
-                pid_input = await page.query_selector(
-                    'span.obviz-base-filterText:has-text("pid") + * input[autocomplete="off"]'
-                )
-                if not pid_input:
-                    # 方式3: 查找所有输入框，找到在pid标签附近的
-                    pid_input = await page.query_selector(
-                        'input[autocomplete="off"][value=""]'
-                    )
-            except Exception:
-                pass
+                all_inputs = await page.query_selector_all('span.obviz-base-filterInput input[autocomplete="off"]')
+                if all_inputs:
+                    for inp in all_inputs:
+                        if await inp.is_visible():
+                            # 使用JavaScript检查输入框是否在包含pid标签的容器内
+                            is_pid_input = await inp.evaluate('''el => {
+                                const container = el.closest("div.obviz-base-easy-select-inner");
+                                if (!container) return false;
+                                const pidLabel = container.querySelector('span.obviz-base-filterText');
+                                return pidLabel && pidLabel.textContent.trim().toLowerCase() === 'pid';
+                            }''')
+                            if is_pid_input:
+                                pid_input = inp
+                                print("通过方式2找到PID输入框")
+                                break
+            except Exception as e:
+                print(f"方式2定位失败: {e}")
+        
+        # 方式3: 最后备选方案 - 选择第一个可见的输入框
+        if not pid_input:
+            try:
+                all_inputs = await page.query_selector_all('span.obviz-base-filterInput input[autocomplete="off"]')
+                if all_inputs:
+                    for inp in all_inputs:
+                        if await inp.is_visible():
+                            pid_input = inp
+                            print("通过方式3找到PID输入框（备选方案）")
+                            break
+            except Exception as e:
+                print(f"方式3定位失败: {e}")
         
         if not pid_input:
             return {
