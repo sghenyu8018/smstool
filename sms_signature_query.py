@@ -380,64 +380,132 @@ async def query_sms_success_rate(
                 print(f"点击'求德大盘'菜单项时出现问题: {e}，继续执行...")
         
         # 3. 等待页面加载完成，查找PID输入框
-        print(f"正在填写客户PID: {pid}")
+        print(f"\n{'='*60}")
+        print(f"步骤3: 查找并填写客户PID: {pid}")
+        print(f"{'='*60}")
         
         # 尝试多种方式定位PID输入框
         pid_input = None
         
         # 方式1: 通过包含pid标签的容器查找输入框（最可靠）
+        print("\n[方式1] 尝试通过pid标签容器定位输入框...")
         try:
-            # 等待包含pid标签的容器出现
+            print("  - 等待pid标签出现...")
+            pid_label_selector = 'span.obviz-base-filterText:has-text("pid")'
             await page.wait_for_selector(
-                'span.obviz-base-filterText:has-text("pid")',
+                pid_label_selector,
                 timeout=10000,
                 state='visible'
             )
+            print(f"  ✓ pid标签已找到")
+            
+            # 检查有多少个pid标签
+            pid_labels = await page.query_selector_all(pid_label_selector)
+            print(f"  - 找到 {len(pid_labels)} 个pid标签")
             
             # 使用locator查找：先找到pid标签，然后找到其父容器，再找输入框
-            pid_input_locator = page.locator('div.obviz-base-easy-select-inner:has(span.obviz-base-filterText:has-text("pid")) span.obviz-base-filterInput input[autocomplete="off"]')
+            print("  - 使用locator查找输入框...")
+            full_selector = 'div.obviz-base-easy-select-inner:has(span.obviz-base-filterText:has-text("pid")) span.obviz-base-filterInput input[autocomplete="off"]'
+            pid_input_locator = page.locator(full_selector)
+            count = await pid_input_locator.count()
+            print(f"  - locator找到 {count} 个匹配的输入框")
             
-            if await pid_input_locator.count() > 0:
+            if count > 0:
                 pid_input = await pid_input_locator.first.element_handle()
-                print("通过方式1找到PID输入框")
+                is_visible = await pid_input.is_visible()
+                value = await pid_input.get_attribute('value') or ''
+                print(f"  ✓ 通过方式1找到PID输入框 (可见: {is_visible}, 当前值: '{value}')")
+            else:
+                print(f"  ✗ 未找到匹配的输入框")
+        except PlaywrightTimeoutError as e:
+            print(f"  ✗ 方式1定位失败: 超时 - {str(e)}")
         except Exception as e:
-            print(f"方式1定位失败: {e}")
+            print(f"  ✗ 方式1定位失败: {type(e).__name__} - {str(e)}")
         
         # 方式2: 直接查找所有filterInput内的输入框，然后检查是否在pid容器内
         if not pid_input:
+            print("\n[方式2] 尝试查找所有filterInput内的输入框并验证...")
             try:
-                all_inputs = await page.query_selector_all('span.obviz-base-filterInput input[autocomplete="off"]')
+                selector = 'span.obviz-base-filterInput input[autocomplete="off"]'
+                print(f"  - 使用选择器查找: {selector}")
+                all_inputs = await page.query_selector_all(selector)
+                print(f"  - 找到 {len(all_inputs)} 个输入框")
+                
                 if all_inputs:
-                    for inp in all_inputs:
-                        if await inp.is_visible():
+                    for idx, inp in enumerate(all_inputs, 1):
+                        is_visible = await inp.is_visible()
+                        value = await inp.get_attribute('value') or ''
+                        print(f"  - 输入框 {idx}: 可见={is_visible}, 值='{value}'")
+                        
+                        if is_visible:
                             # 使用JavaScript检查输入框是否在包含pid标签的容器内
+                            print(f"    - 检查是否在pid容器内...")
                             is_pid_input = await inp.evaluate('''el => {
                                 const container = el.closest("div.obviz-base-easy-select-inner");
                                 if (!container) return false;
                                 const pidLabel = container.querySelector('span.obviz-base-filterText');
-                                return pidLabel && pidLabel.textContent.trim().toLowerCase() === 'pid';
+                                const result = pidLabel && pidLabel.textContent.trim().toLowerCase() === 'pid';
+                                return result;
                             }''')
+                            print(f"    - 检查结果: {is_pid_input}")
+                            
                             if is_pid_input:
                                 pid_input = inp
-                                print("通过方式2找到PID输入框")
+                                print(f"  ✓ 通过方式2找到PID输入框 (输入框 {idx})")
                                 break
+                else:
+                    print(f"  ✗ 未找到任何输入框")
             except Exception as e:
-                print(f"方式2定位失败: {e}")
+                print(f"  ✗ 方式2定位失败: {type(e).__name__} - {str(e)}")
         
         # 方式3: 最后备选方案 - 选择第一个可见的输入框
         if not pid_input:
+            print("\n[方式3] 尝试备选方案 - 选择第一个可见的输入框...")
             try:
-                all_inputs = await page.query_selector_all('span.obviz-base-filterInput input[autocomplete="off"]')
+                selector = 'span.obviz-base-filterInput input[autocomplete="off"]'
+                print(f"  - 使用选择器查找: {selector}")
+                all_inputs = await page.query_selector_all(selector)
+                print(f"  - 找到 {len(all_inputs)} 个输入框")
+                
                 if all_inputs:
-                    for inp in all_inputs:
-                        if await inp.is_visible():
+                    for idx, inp in enumerate(all_inputs, 1):
+                        is_visible = await inp.is_visible()
+                        value = await inp.get_attribute('value') or ''
+                        print(f"  - 输入框 {idx}: 可见={is_visible}, 值='{value}'")
+                        
+                        if is_visible:
                             pid_input = inp
-                            print("通过方式3找到PID输入框（备选方案）")
+                            print(f"  ⚠ 通过方式3找到PID输入框（备选方案，输入框 {idx}）")
                             break
+                    
+                    if not pid_input:
+                        print(f"  ✗ 未找到可见的输入框")
+                else:
+                    print(f"  ✗ 未找到任何输入框")
             except Exception as e:
-                print(f"方式3定位失败: {e}")
+                print(f"  ✗ 方式3定位失败: {type(e).__name__} - {str(e)}")
         
+        # 最终检查
+        print(f"\n{'='*60}")
         if not pid_input:
+            print("✗ 所有方式都未能找到PID输入框")
+            print("调试信息:")
+            try:
+                # 检查页面上的相关元素
+                pid_labels = await page.query_selector_all('span.obviz-base-filterText')
+                print(f"  - 页面上有 {len(pid_labels)} 个filterText元素")
+                for idx, label in enumerate(pid_labels[:5], 1):  # 只显示前5个
+                    text = await label.inner_text()
+                    print(f"    {idx}. 文本: '{text}'")
+                
+                containers = await page.query_selector_all('div.obviz-base-easy-select-inner')
+                print(f"  - 页面上有 {len(containers)} 个easy-select-inner容器")
+                
+                all_inputs = await page.query_selector_all('input[autocomplete="off"]')
+                print(f"  - 页面上有 {len(all_inputs)} 个autocomplete='off'的输入框")
+            except Exception as e:
+                print(f"  - 获取调试信息时出错: {e}")
+            
             return {
                 'success': False,
                 'success_rate': None,
@@ -445,6 +513,9 @@ async def query_sms_success_rate(
                 'data': None,
                 'error': '未找到PID输入框，请检查页面结构'
             }
+        else:
+            print("✓ PID输入框定位成功")
+            print(f"{'='*60}\n")
         
         # 3. 填写PID
         await pid_input.fill(pid)
