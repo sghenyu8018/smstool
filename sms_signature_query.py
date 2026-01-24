@@ -111,6 +111,13 @@ if __name__ == '__main__':
                 
                 # 按用户要求的格式输出：时间范围、签名、成功率、短信类型、提交量
                 for time_range in multi_result['time_ranges']:
+                    # 检查该时间范围的结果是否存在
+                    if time_range not in multi_result['results']:
+                        print(f"\n{time_range}成功率")
+                        print("-" * 60)
+                        print(f"查询失败: 该时间范围的查询结果不存在")
+                        continue
+                    
                     result = multi_result['results'][time_range]
                     
                     if result['success'] and result.get('data'):
@@ -135,7 +142,7 @@ if __name__ == '__main__':
                     else:
                         print(f"\n{time_range}成功率")
                         print("-" * 60)
-                        if not result['success']:
+                        if not result.get('success', False):
                             print(f"查询失败: {result.get('error', '未知错误')}")
                         else:
                             print("未找到数据")
@@ -145,8 +152,15 @@ if __name__ == '__main__':
                 # 即使部分失败，也显示成功的结果
                 has_success = False
                 for time_range in multi_result['time_ranges']:
+                    # 检查该时间范围的结果是否存在
+                    if time_range not in multi_result['results']:
+                        print(f"\n{time_range}成功率")
+                        print("-" * 60)
+                        print(f"查询失败: 该时间范围的查询结果不存在（可能因为首次查询失败导致后续查询未执行）")
+                        continue
+                    
                     result = multi_result['results'][time_range]
-                    if result['success'] and result.get('data'):
+                    if result.get('success', False) and result.get('data'):
                         if not has_success:
                             print(f"\n部分查询成功，显示成功的结果：")
                             has_success = True
