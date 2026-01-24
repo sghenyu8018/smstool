@@ -799,9 +799,30 @@ async def query_sms_success_rate(
                 # 获取该时间范围的所有可能文本
                 search_texts = time_range_map.get(time_range, [time_range])
                 
+                # 在开始查找之前，先打印出所有可用的时间范围选项
+                print(f"  - 打印所有可用的时间范围选项:")
+                try:
+                    all_option_nodes = await sls_frame.query_selector_all("li.obviz-base-li-block")
+                    print(f"    - 共找到 {len(all_option_nodes)} 个时间范围选项:")
+                    for idx, node in enumerate(all_option_nodes, 1):
+                        try:
+                            option_text = await node.inner_text()
+                            # 尝试获取更多信息（如是否可见、是否有特定属性等）
+                            is_visible = await node.is_visible()
+                            option_class = await node.get_attribute("class")
+                            print(f"      {idx}. {option_text} (可见: {is_visible}, class: {option_class})")
+                        except Exception as e:
+                            print(f"      {idx}. 读取选项信息失败: {e}")
+                except Exception as e:
+                    print(f"    - 获取时间范围选项列表失败: {e}")
+                
                 for search_text in search_texts:
                     try:
                         # 方式1: 使用has-text查找
+                        # 使用 Playwright 的 has-text 语法查找包含指定文本的时间选项
+                        # li.obviz-base-li-block: 筛选所有时间范围下拉列表项
+                        # f-string 动态插入查找的 search_text（如"当天"、"本周"等）
+                        # .first 取第一个匹配的元素，以避免多个重复项
                         option_locator = sls_frame.locator(f'li.obviz-base-li-block:has-text("{search_text}")').first
                         if await option_locator.count() > 0:
                             is_visible = await option_locator.is_visible()
