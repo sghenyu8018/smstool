@@ -102,7 +102,9 @@ class Logger:
     
     def log_iframe_elements(self, pid: Optional[str], time_range: str, 
                            filter_texts: list, inputs: list, 
-                           table_rows_count: int, table_cells_count: int):
+                           table_rows_count: int, table_cells_count: int,
+                           table_rows_content: Optional[list] = None,
+                           table_cells_content: Optional[list] = None):
         """
         记录SLS iframe元素信息到专门的日志文件
         
@@ -113,6 +115,8 @@ class Logger:
             inputs: 输入框列表
             table_rows_count: 表格行数量
             table_cells_count: 表格单元格数量
+            table_rows_content: 表格行的具体内容列表
+            table_cells_content: 表格单元格的具体内容列表
         """
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         log_file = self.log_dir / f'sls_iframe_elements_{timestamp}.log'
@@ -137,7 +141,20 @@ class Logger:
                 
                 f.write("\n【输出内容区域】\n")
                 f.write(f"  - 找到 {table_rows_count} 个表格行/行元素\n")
-                f.write(f"  - 找到 {table_cells_count} 个表格单元格\n")
+                if table_rows_content:
+                    f.write(f"\n  表格行具体内容（共 {len(table_rows_content)} 条）:\n")
+                    for row_content in table_rows_content:
+                        f.write(f"    {row_content}\n")
+                else:
+                    f.write("  - 未提取到表格行内容\n")
+                
+                f.write(f"\n  - 找到 {table_cells_count} 个表格单元格\n")
+                if table_cells_content:
+                    f.write(f"\n  表格单元格具体内容（共 {len(table_cells_content)} 条）:\n")
+                    for cell_content in table_cells_content:
+                        f.write(f"    {cell_content}\n")
+                else:
+                    f.write("  - 未提取到表格单元格内容\n")
             
             self.info(f"  ✓ 日志已保存到: {log_file}")
             return str(log_file)

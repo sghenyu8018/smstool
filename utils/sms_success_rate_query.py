@@ -764,9 +764,9 @@ async def query_sms_success_rate(
         
         # 时间范围映射（用于查找选项）
         time_range_map = {
-            '当天': ['当天', '今天', '今日'],
+            '当天': [ '今天'],
             '本周': ['本周', '本周（相对）'],
-            '一周': ['一周', '7天', '7天（相对）'],
+            '一周': ['1周'],
             '上周': ['上周', '上周（相对）'],
             '30天': ['30天', '30天（相对）']
         }
@@ -876,9 +876,32 @@ async def query_sms_success_rate(
             table_rows_count = len(table_rows)
             logger.info(f"  - 找到 {table_rows_count} 个表格行/行元素")
             
+            # 提取表格行的具体内容
+            table_rows_content = []
+            for idx, row in enumerate(table_rows[:50], 1):  # 限制最多50行，避免日志过大
+                try:
+                    row_text = await row.inner_text()
+                    table_rows_content.append(f"行 {idx}: {row_text[:200]}")  # 限制每行200字符
+                    if idx <= 10:  # 前10行详细记录
+                        logger.info(f"    行 {idx}: {row_text[:200]}")
+                except Exception as e:
+                    table_rows_content.append(f"行 {idx}: [提取失败: {str(e)}]")
+            
             table_cells = await sls_frame.query_selector_all('div.obviz-base-easyTable-cell, td, div[class*="table-cell"]')
             table_cells_count = len(table_cells)
             logger.info(f"  - 找到 {table_cells_count} 个表格单元格")
+            
+            # 提取表格单元格的具体内容
+            table_cells_content = []
+            for idx, cell in enumerate(table_cells[:100], 1):  # 限制最多100个单元格
+                try:
+                    cell_text = await extract_cell_text(cell)
+                    if cell_text.strip():  # 只记录非空单元格
+                        table_cells_content.append(f"单元格 {idx}: {cell_text.strip()[:100]}")  # 限制每个单元格100字符
+                        if idx <= 20:  # 前20个单元格详细记录
+                            logger.info(f"    单元格 {idx}: {cell_text.strip()[:100]}")
+                except Exception as e:
+                    table_cells_content.append(f"单元格 {idx}: [提取失败: {str(e)}]")
             
             # 使用日志模块记录到专门的日志文件
             log_file = logger.log_iframe_elements(
@@ -887,7 +910,9 @@ async def query_sms_success_rate(
                 filter_texts=filter_text_list,
                 inputs=input_list,
                 table_rows_count=table_rows_count,
-                table_cells_count=table_cells_count
+                table_cells_count=table_cells_count,
+                table_rows_content=table_rows_content,
+                table_cells_content=table_cells_content
             )
                 
         except Exception as e:
