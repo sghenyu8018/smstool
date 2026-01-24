@@ -147,10 +147,58 @@ async def query_sms_success_rate(
         # 等待SLS iframe加载完成
         print("  - 等待SLS iframe加载完成...")
         try:
-            await sls_frame.wait_for_load_state('domcontentloaded', timeout=10000)
+            # 1. 等待DOM加载完成
+            await sls_frame.wait_for_load_state('domcontentloaded', timeout=15000)
+            print("    ✓ DOM加载完成")
+            
+            # 2. 等待网络请求完成（load状态）
+            try:
+                await sls_frame.wait_for_load_state('load', timeout=15000)
+                print("    ✓ 页面资源加载完成")
+            except Exception as e:
+                print(f"    ⚠ 等待load状态超时: {e}，继续执行...")
+            
+            # 3. 等待至少有一些可见元素出现（确保内容已渲染）
+            print("    - 等待关键元素出现...")
+            max_retries = 10
+            retry_count = 0
+            elements_ready = False
+            
+            while retry_count < max_retries and not elements_ready:
+                try:
+                    # 检查是否有任何可见的输入框或筛选条件
+                    input_count = await sls_frame.locator('input').count()
+                    filter_count = await sls_frame.locator('span.obviz-base-filterText').count()
+                    visible_elements = await sls_frame.locator('body *:visible').count()
+                    
+                    print(f"    - 尝试 {retry_count + 1}/{max_retries}: 输入框={input_count}, 筛选条件={filter_count}, 可见元素={visible_elements}")
+                    
+                    # 如果找到至少一些元素，认为页面已加载
+                    if input_count > 0 or filter_count > 0 or visible_elements > 10:
+                        elements_ready = True
+                        print(f"    ✓ 关键元素已出现（输入框: {input_count}, 筛选条件: {filter_count}）")
+                        break
+                    
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        await asyncio.sleep(1)  # 等待1秒后重试
+                        
+                except Exception as e:
+                    print(f"    ⚠ 检查元素时出错: {e}")
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        await asyncio.sleep(1)
+            
+            if not elements_ready:
+                print("    ⚠ 等待关键元素超时，但继续尝试查找PID输入框...")
+            
+            # 4. 额外等待一段时间，确保JavaScript已执行
             await asyncio.sleep(2)
+            print("    ✓ 等待完成，开始查找PID输入框")
+            
         except Exception as e:
-            print(f"  ⚠ SLS iframe加载超时: {e}")
+            print(f"  ⚠ SLS iframe加载过程中出错: {type(e).__name__} - {str(e)}")
+            print("    继续尝试查找PID输入框...")
         
         # 在SLS iframe中查找PID输入框
         pid_input_locator = None
