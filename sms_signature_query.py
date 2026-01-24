@@ -413,26 +413,44 @@ async def query_sms_success_rate(
             url_display = url[:100] + '...' if len(url) > 100 else url
             print(f"    Frame {idx}: name='{name}', url='{url_display}'")
         
-        # 直接在iframe中查找PID输入框
-        pid_input_locator = None
-        current_frame = None
-        
-        # 方式1: 在所有frame中查找PID输入框（优先iframe）
-        print("\n[方式1] 在所有frame中查找PID输入框...")
+        # 直接定位到Frame 3（SLS iframe）
+        sls_frame = None
+        print("\n定位SLS iframe (Frame 3)...")
         for idx, frame in enumerate(iframes):
-            try:
-                print(f"  - 检查frame {idx} (name='{frame.name or 'unnamed'}')...")
-                
-                # 等待frame加载
-                await frame.wait_for_load_state('domcontentloaded', timeout=5000)
-                await asyncio.sleep(1)  # 额外等待，确保内容渲染
-                
-                # 在frame中查找pid标签
-                pid_label_locator = frame.locator('span.obviz-base-filterText').filter(has_text='pid')
-                count = await pid_label_locator.count()
-                print(f"    - 找到 {count} 个pid标签")
-                
-                if count > 0:
+            if 'sls4service.console.aliyun.com' in frame.url and 'dashboard' in frame.url:
+                sls_frame = frame
+                print(f"  ✓ 找到SLS iframe: Frame {idx}")
+                print(f"    URL: {frame.url[:150]}...")
+                break
+        
+        if not sls_frame:
+            return {
+                'success': False,
+                'success_rate': None,
+                'pid': pid,
+                'data': None,
+                'error': '未找到SLS iframe (Frame 3)，请检查页面是否加载完成'
+            }
+        
+        # 等待SLS iframe加载完成
+        print("  - 等待SLS iframe加载完成...")
+        try:
+            await sls_frame.wait_for_load_state('domcontentloaded', timeout=10000)
+            await asyncio.sleep(2)  # 额外等待，确保内容渲染
+        except Exception as e:
+            print(f"  ⚠ SLS iframe加载超时: {e}")
+        
+        # 在SLS iframe中查找PID输入框
+        pid_input_locator = None
+        
+        print("\n[方式1] 在SLS iframe中查找PID输入框...")
+        try:
+            # 在SLS iframe中查找pid标签
+            pid_label_locator = sls_frame.locator('span.obviz-base-filterText').filter(has_text='pid')
+            count = await pid_label_locator.count()
+            print(f"  - 找到 {count} 个pid标签")
+            
+            if count > 0:
                     # 找到pid标签后，查找父容器
                     container_locator = pid_label_locator.locator('xpath=ancestor::div[contains(@class, "obviz-base-easy-select-inner")]')
                     container_count = await container_locator.count()
@@ -453,7 +471,6 @@ async def query_sms_success_rate(
                             
                             if is_visible:
                                 pid_input_locator = first_input
-                                current_frame = frame
                                 
                                 # 打印元素信息
                                 try:
@@ -470,7 +487,7 @@ async def query_sms_success_rate(
                                             outerHTML: el.outerHTML.substring(0, 200) + (el.outerHTML.length > 200 ? '...' : '')
                                         };
                                     }''')
-                                    print(f"  ✓ 在frame {idx}中找到PID输入框（已可见）")
+                                    print(f"  ✓ 在SLS iframe中找到PID输入框（已可见）")
                                     print(f"  元素信息:")
                                     print(f"    - 标签: {element_info.get('tagName', 'N/A')}")
                                     print(f"    - ID: {element_info.get('id', 'N/A')}")
@@ -482,10 +499,8 @@ async def query_sms_success_rate(
                                     print(f"    - Autocomplete: {element_info.get('autocomplete', 'N/A')}")
                                     print(f"    - HTML片段: {element_info.get('outerHTML', 'N/A')}")
                                 except Exception as e:
-                                    print(f"  ✓ 在frame {idx}中找到PID输入框（已可见）")
+                                    print(f"  ✓ 在SLS iframe中找到PID输入框（已可见）")
                                     print(f"  (获取元素详细信息时出错: {e})")
-                                
-                                break
                         
                         # 如果输入框不可见或不存在，尝试点击值容器来激活
                         print(f"    - 输入框不可见或不存在，尝试点击值容器激活...")
@@ -532,7 +547,6 @@ async def query_sms_success_rate(
                                     
                                     if is_visible:
                                         pid_input_locator = first_input
-                                        current_frame = frame
                                         
                                         # 打印元素信息
                                         try:
@@ -549,7 +563,7 @@ async def query_sms_success_rate(
                                                     outerHTML: el.outerHTML.substring(0, 200) + (el.outerHTML.length > 200 ? '...' : '')
                                                 };
                                             }''')
-                                            print(f"  ✓ 在frame {idx}中找到PID输入框（已激活）")
+                                            print(f"  ✓ 在SLS iframe中找到PID输入框（已激活）")
                                             print(f"  元素信息:")
                                             print(f"    - 标签: {element_info.get('tagName', 'N/A')}")
                                             print(f"    - ID: {element_info.get('id', 'N/A')}")
@@ -561,19 +575,15 @@ async def query_sms_success_rate(
                                             print(f"    - Autocomplete: {element_info.get('autocomplete', 'N/A')}")
                                             print(f"    - HTML片段: {element_info.get('outerHTML', 'N/A')}")
                                         except Exception as e:
-                                            print(f"  ✓ 在frame {idx}中找到PID输入框（已激活）")
+                                            print(f"  ✓ 在SLS iframe中找到PID输入框（已激活）")
                                             print(f"  (获取元素详细信息时出错: {e})")
-                                        
-                                        break
                                     else:
                                         print(f"    - 输入框仍然不可见，尝试等待...")
                                         # 等待输入框变为可见
                                         try:
                                             await first_input.wait_for(state='visible', timeout=3000)
                                             pid_input_locator = first_input
-                                            current_frame = frame
-                                            print(f"  ✓ 在frame {idx}中找到PID输入框（等待后可见）")
-                                            break
+                                            print(f"  ✓ 在SLS iframe中找到PID输入框（等待后可见）")
                                         except Exception:
                                             print(f"    - 等待超时，输入框仍未可见")
                             else:
@@ -590,125 +600,76 @@ async def query_sms_success_rate(
                                     try:
                                         await first_input.wait_for(state='visible', timeout=3000)
                                         pid_input_locator = first_input
-                                        current_frame = frame
-                                        print(f"  ✓ 在frame {idx}中找到PID输入框（点击容器后可见）")
-                                        break
+                                        print(f"  ✓ 在SLS iframe中找到PID输入框（点击容器后可见）")
                                     except Exception:
                                         pass
                         except Exception as e:
                             print(f"    - 激活输入框时出错: {type(e).__name__} - {str(e)}")
-            except Exception as e:
-                print(f"    - frame {idx} 查找失败: {type(e).__name__} - {str(e)}")
-                continue
+            else:
+                print(f"  ✗ 未找到pid标签")
+        except Exception as e:
+            print(f"  ✗ 查找PID输入框失败: {type(e).__name__} - {str(e)}")
         
-        # 方式2: 如果方式1失败，在所有frame中查找所有输入框并验证
+        # 方式2: 如果方式1失败，在SLS iframe中查找所有输入框并验证
         if not pid_input_locator:
-            print("\n[方式2] 在所有frame中查找所有输入框并验证...")
-            for idx, frame in enumerate(iframes):
-                try:
-                    print(f"  - 在frame {idx}中查找所有输入框...")
-                    await frame.wait_for_load_state('domcontentloaded', timeout=3000)
-                    
-                    all_inputs_locator = frame.locator('span.obviz-base-filterInput input[autocomplete="off"]')
-                    count = await all_inputs_locator.count()
-                    print(f"    - 找到 {count} 个输入框")
-                    
-                    for inp_idx in range(count):
-                        input_loc = all_inputs_locator.nth(inp_idx)
-                        is_visible = await input_loc.is_visible()
-                        if is_visible:
-                            value = await input_loc.get_attribute('value') or ''
-                            print(f"    - 输入框 {inp_idx+1}: 可见={is_visible}, 值='{value}'")
+            print("\n[方式2] 在SLS iframe中查找所有输入框并验证...")
+            try:
+                all_inputs_locator = sls_frame.locator('span.obviz-base-filterInput input[autocomplete="off"]')
+                count = await all_inputs_locator.count()
+                print(f"  - 找到 {count} 个输入框")
+                
+                for inp_idx in range(count):
+                    input_loc = all_inputs_locator.nth(inp_idx)
+                    is_visible = await input_loc.is_visible()
+                    if is_visible:
+                        value = await input_loc.get_attribute('value') or ''
+                        print(f"    - 输入框 {inp_idx+1}: 可见={is_visible}, 值='{value}'")
+                        
+                        # 检查是否在pid容器内
+                        is_pid_input = await input_loc.evaluate('''el => {
+                            const container = el.closest("div.obviz-base-easy-select-inner");
+                            if (!container) return false;
+                            const pidLabel = container.querySelector('span.obviz-base-filterText');
+                            return pidLabel && pidLabel.textContent.trim().toLowerCase() === 'pid';
+                        }''')
+                        print(f"      - 检查结果: {is_pid_input}")
+                        
+                        if is_pid_input:
+                            pid_input_locator = input_loc
                             
-                            # 检查是否在pid容器内
-                            is_pid_input = await input_loc.evaluate('''el => {
-                                const container = el.closest("div.obviz-base-easy-select-inner");
-                                if (!container) return false;
-                                const pidLabel = container.querySelector('span.obviz-base-filterText');
-                                return pidLabel && pidLabel.textContent.trim().toLowerCase() === 'pid';
-                            }''')
-                            print(f"      - 检查结果: {is_pid_input}")
+                            # 打印元素信息
+                            try:
+                                element_info = await input_loc.evaluate('''el => {
+                                    return {
+                                        tagName: el.tagName,
+                                        id: el.id || '',
+                                        className: el.className || '',
+                                        name: el.name || '',
+                                        type: el.type || '',
+                                        value: el.value || '',
+                                        placeholder: el.placeholder || '',
+                                        autocomplete: el.autocomplete || '',
+                                        outerHTML: el.outerHTML.substring(0, 200) + (el.outerHTML.length > 200 ? '...' : '')
+                                    };
+                                }''')
+                                print(f"  ✓ 在SLS iframe的输入框 {inp_idx+1}中找到PID输入框")
+                                print(f"  元素信息:")
+                                print(f"    - 标签: {element_info.get('tagName', 'N/A')}")
+                                print(f"    - ID: {element_info.get('id', 'N/A')}")
+                                print(f"    - Class: {element_info.get('className', 'N/A')}")
+                                print(f"    - Name: {element_info.get('name', 'N/A')}")
+                                print(f"    - Type: {element_info.get('type', 'N/A')}")
+                                print(f"    - Value: {element_info.get('value', 'N/A')}")
+                                print(f"    - Placeholder: {element_info.get('placeholder', 'N/A')}")
+                                print(f"    - Autocomplete: {element_info.get('autocomplete', 'N/A')}")
+                                print(f"    - HTML片段: {element_info.get('outerHTML', 'N/A')}")
+                            except Exception as e:
+                                print(f"  ✓ 在SLS iframe的输入框 {inp_idx+1}中找到PID输入框")
+                                print(f"  (获取元素详细信息时出错: {e})")
                             
-                            if is_pid_input:
-                                # 如果输入框不可见，尝试点击值容器激活
-                                if not is_visible:
-                                    print(f"      - 输入框不可见，尝试激活...")
-                                    try:
-                                        # 使用locator找到父容器
-                                        container_locator = input_loc.locator('xpath=ancestor::div[contains(@class, "obviz-base-easy-select-inner")]')
-                                        if await container_locator.count() > 0:
-                                            # 尝试点击值容器
-                                            value_selectors = [
-                                                'div.obviz-base-easy-select-value',
-                                                'div.obviz-base-easy-select-text-field',
-                                                '.obviz-base-easy-select-value',
-                                                '.obviz-base-easy-select-text-field'
-                                            ]
-                                            clicked = False
-                                            for selector in value_selectors:
-                                                try:
-                                                    value_locator = container_locator.locator(selector).first
-                                                    if await value_locator.count() > 0:
-                                                        await value_locator.click()
-                                                        await asyncio.sleep(1)
-                                                        clicked = True
-                                                        print(f"      - 已点击值容器: {selector}")
-                                                        break
-                                                except Exception:
-                                                    continue
-                                            
-                                            if clicked:
-                                                # 等待输入框变为可见
-                                                try:
-                                                    await input_loc.wait_for(state='visible', timeout=3000)
-                                                    is_visible = True
-                                                    print(f"      - 输入框已激活并可见")
-                                                except Exception:
-                                                    print(f"      - 等待超时，输入框仍未可见")
-                                    except Exception as e:
-                                        print(f"      - 激活输入框时出错: {e}")
-                                
-                                if is_visible:
-                                    pid_input_locator = input_loc
-                                    current_frame = frame
-                                    
-                                    # 打印元素信息
-                                    try:
-                                        element_info = await input_loc.evaluate('''el => {
-                                            return {
-                                                tagName: el.tagName,
-                                                id: el.id || '',
-                                                className: el.className || '',
-                                                name: el.name || '',
-                                                type: el.type || '',
-                                                value: el.value || '',
-                                                placeholder: el.placeholder || '',
-                                                autocomplete: el.autocomplete || '',
-                                                outerHTML: el.outerHTML.substring(0, 200) + (el.outerHTML.length > 200 ? '...' : '')
-                                            };
-                                        }''')
-                                        print(f"  ✓ 在frame {idx}的输入框 {inp_idx+1}中找到PID输入框")
-                                        print(f"  元素信息:")
-                                        print(f"    - 标签: {element_info.get('tagName', 'N/A')}")
-                                        print(f"    - ID: {element_info.get('id', 'N/A')}")
-                                        print(f"    - Class: {element_info.get('className', 'N/A')}")
-                                        print(f"    - Name: {element_info.get('name', 'N/A')}")
-                                        print(f"    - Type: {element_info.get('type', 'N/A')}")
-                                        print(f"    - Value: {element_info.get('value', 'N/A')}")
-                                        print(f"    - Placeholder: {element_info.get('placeholder', 'N/A')}")
-                                        print(f"    - Autocomplete: {element_info.get('autocomplete', 'N/A')}")
-                                        print(f"    - HTML片段: {element_info.get('outerHTML', 'N/A')}")
-                                    except Exception as e:
-                                        print(f"  ✓ 在frame {idx}的输入框 {inp_idx+1}中找到PID输入框")
-                                        print(f"  (获取元素详细信息时出错: {e})")
-                                    
-                                    break
-                    
-                    if pid_input_locator:
-                        break
-                except Exception as e:
-                    print(f"    - frame {idx} 查找失败: {type(e).__name__} - {str(e)}")
-                    continue
+                            break
+            except Exception as e:
+                print(f"  ✗ 查找失败: {type(e).__name__} - {str(e)}")
         
         # 最终检查
         print(f"\n{'='*60}")
@@ -737,17 +698,15 @@ async def query_sms_success_rate(
                 'error': '未找到PID输入框，请检查页面结构'
             }
         else:
-            frame_info = f"frame {iframes.index(current_frame)}" if current_frame else "主frame"
-            print(f"✓ PID输入框定位成功 (在{frame_info}中)")
+            print(f"✓ PID输入框定位成功 (在SLS iframe中)")
             print(f"{'='*60}\n")
         
-        # 4. 填写PID（使用locator在iframe中填写）
+        # 4. 填写PID（在SLS iframe中填写）
         print(f"\n{'='*60}")
         print(f"步骤4: 填写PID到输入框")
         print(f"{'='*60}")
         
-        if current_frame and current_frame != page.main_frame:
-            print(f"  注意: 输入框在iframe中，将使用iframe进行操作")
+        print(f"  注意: 输入框在SLS iframe中，将使用SLS iframe进行操作")
         
         try:
             # 方法1: 使用locator点击并填写
@@ -817,10 +776,7 @@ async def query_sms_success_rate(
         
         try:
             # 点击搜索图标（如果存在）
-            if current_frame and current_frame != page.main_frame:
-                search_icon_locator = current_frame.locator('i.obviz-base-easy-select-folder, .obviz-base-easy-select-control').first
-            else:
-                search_icon_locator = page.locator('i.obviz-base-easy-select-folder, .obviz-base-easy-select-control').first
+            search_icon_locator = sls_frame.locator('i.obviz-base-easy-select-folder, .obviz-base-easy-select-control').first
             
             if await search_icon_locator.count() > 0:
                 await search_icon_locator.click()
@@ -837,35 +793,20 @@ async def query_sms_success_rate(
         print(f"{'='*60}")
         
         try:
-            # 在所有frame中查找时间选择器
+            # 在SLS iframe中查找时间选择器
             time_selector_locator = None
-            time_frame = None
             
-            print("  - 在所有frame中查找时间选择器...")
-            for idx, frame in enumerate(iframes):
-                try:
-                    # 查找时间选择器按钮
-                    time_selector = frame.locator('div[data-spm-click*="time"]').first
-                    if await time_selector.count() > 0:
-                        is_visible = await time_selector.is_visible()
-                        if is_visible:
-                            time_selector_locator = time_selector
-                            time_frame = frame
-                            print(f"  ✓ 在frame {idx}中找到时间选择器")
-                            break
-                except Exception:
-                    continue
-            
-            if not time_selector_locator:
-                # 如果找不到，尝试在主页面查找
-                print("  - 在主页面查找时间选择器...")
-                try:
-                    time_selector_locator = page.locator('div[data-spm-click*="time"]').first
-                    if await time_selector_locator.count() > 0:
-                        time_frame = page
-                        print("  ✓ 在主页面找到时间选择器")
-                except Exception:
-                    pass
+            print("  - 在SLS iframe中查找时间选择器...")
+            try:
+                # 查找时间选择器按钮
+                time_selector = sls_frame.locator('div[data-spm-click*="time"]').first
+                if await time_selector.count() > 0:
+                    is_visible = await time_selector.is_visible()
+                    if is_visible:
+                        time_selector_locator = time_selector
+                        print(f"  ✓ 在SLS iframe中找到时间选择器")
+            except Exception as e:
+                print(f"  ✗ 在SLS iframe中查找时间选择器失败: {e}")
             
             if time_selector_locator:
                 # 点击时间选择器按钮
@@ -874,44 +815,28 @@ async def query_sms_success_rate(
                 await asyncio.sleep(1)  # 等待弹窗出现
                 
                 # 查找并点击"30天"选项
-                print("  - 查找'30天'选项...")
+                print("  - 在SLS iframe中查找'30天'选项...")
                 time_option_locator = None
                 
-                # 在所有frame中查找30天选项
-                for idx, frame in enumerate(iframes):
-                    try:
-                        option_locator = frame.locator('li.obviz-base-li-block:has-text("30天")').first
-                        if await option_locator.count() > 0:
-                            is_visible = await option_locator.is_visible()
-                            if is_visible:
-                                time_option_locator = option_locator
-                                print(f"  ✓ 在frame {idx}中找到'30天'选项")
-                                break
-                    except Exception:
-                        continue
+                try:
+                    option_locator = sls_frame.locator('li.obviz-base-li-block:has-text("30天")').first
+                    if await option_locator.count() > 0:
+                        is_visible = await option_locator.is_visible()
+                        if is_visible:
+                            time_option_locator = option_locator
+                            print(f"  ✓ 在SLS iframe中找到'30天'选项")
+                except Exception:
+                    pass
                 
-                # 如果找不到，尝试在主页面查找
+                # 如果找不到，尝试通过文本查找
                 if not time_option_locator:
                     try:
-                        time_option_locator = page.locator('li.obviz-base-li-block:has-text("30天")').first
-                        if await time_option_locator.count() > 0:
-                            print("  ✓ 在主页面找到'30天'选项")
+                        option_locator = sls_frame.locator('text=30天').first
+                        if await option_locator.count() > 0:
+                            time_option_locator = option_locator
+                            print(f"  ✓ 在SLS iframe中通过文本找到'30天'选项")
                     except Exception:
                         pass
-                
-                # 如果还是找不到，尝试其他选择器
-                if not time_option_locator:
-                    print("  - 尝试其他选择器查找'30天'选项...")
-                    for idx, frame in enumerate(iframes):
-                        try:
-                            # 尝试通过文本查找
-                            option_locator = frame.locator('text=30天').first
-                            if await option_locator.count() > 0:
-                                time_option_locator = option_locator
-                                print(f"  ✓ 在frame {idx}中通过文本找到'30天'选项")
-                                break
-                        except Exception:
-                            continue
                 
                 if time_option_locator:
                     # 点击30天选项
@@ -943,23 +868,9 @@ async def query_sms_success_rate(
         all_data = []
         
         try:
-            # 在所有frame中查找表格行
-            print("  - 在所有frame中查找表格数据...")
-            table_rows = []
-            
-            for idx, frame in enumerate(iframes):
-                try:
-                    rows = await frame.query_selector_all(SELECTORS['success_rate_table_row'])
-                    if rows:
-                        print(f"    - 在frame {idx}中找到 {len(rows)} 行数据")
-                        table_rows.extend(rows)
-                except Exception:
-                    continue
-            
-            # 如果frame中没找到，在主页面查找
-            if not table_rows:
-                print("  - 在主页面查找表格数据...")
-                table_rows = await page.query_selector_all(SELECTORS['success_rate_table_row'])
+            # 在SLS iframe中查找表格行
+            print("  - 在SLS iframe中查找表格数据...")
+            table_rows = await sls_frame.query_selector_all(SELECTORS['success_rate_table_row'])
             
             if table_rows and len(table_rows) > 0:
                 print(f"找到 {len(table_rows)} 行数据")
