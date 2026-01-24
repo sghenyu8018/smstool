@@ -1056,7 +1056,23 @@ async def query_sms_success_rate(
                             row_data = {}
                             try:
                                 # 从单元格中提取文本（通过 table-m__split-container 容器）
-                                def extract_cell_text(cell):
+                                async def extract_cell_text(cell):
+                                    """从单元格中提取文本，优先从 table-m__split-container 中提取"""
+                                    try:
+                                        # 尝试从 table-m__split-container 中提取
+                                        container = await cell.query_selector('div.table-m__split-container__67f567d5 span')
+                                        if container:
+                                            return await container.inner_text()
+                                        # 如果没有找到，直接提取单元格文本
+                                        return await cell.inner_text()
+                                    except Exception:
+                                        try:
+                                            return await cell.inner_text()
+                                        except Exception:
+                                            return ''
+                                
+                                # 从单元格中提取文本（通过 table-m__split-container 容器）
+                                async def extract_cell_text(cell):
                                     """从单元格中提取文本，优先从 table-m__split-container 中提取"""
                                     try:
                                         # 尝试从 table-m__split-container 中提取
@@ -1087,39 +1103,39 @@ async def query_sms_success_rate(
                                 
                                 # 第4列: 提交量
                                 cell4_text = await extract_cell_text(cells[3]) if len(cells) > 3 else ''
-                                row_data['submit_count'] = cell4_text.strip()
+                                row_data['submit_count'] = cell4_text.strip() if cell4_text else ''
                                 row_data['total_sent'] = row_data['submit_count']  # 向后兼容
                                 
                                 # 第5列: 回执量
                                 cell5_text = await extract_cell_text(cells[4]) if len(cells) > 4 else ''
-                                row_data['receipt_count'] = cell5_text.strip()
+                                row_data['receipt_count'] = cell5_text.strip() if cell5_text else ''
                                 row_data['total_success'] = row_data['receipt_count']  # 向后兼容
                                 
                                 # 第6列: 回执成功量
                                 cell6_text = await extract_cell_text(cells[5]) if len(cells) > 5 else ''
-                                row_data['receipt_success_count'] = cell6_text.strip()
+                                row_data['receipt_success_count'] = cell6_text.strip() if cell6_text else ''
                                 row_data['total_failed'] = row_data['receipt_success_count']  # 向后兼容（注意：这个字段名不太准确，但保持兼容）
                                 
                                 # 第7列: 回执率
                                 cell7_text = await extract_cell_text(cells[6]) if len(cells) > 6 else ''
-                                row_data['receipt_rate'] = cell7_text.strip()
+                                row_data['receipt_rate'] = cell7_text.strip() if cell7_text else ''
                                 
                                 # 第8列: 回执成功率（这是主要需要的字段）
                                 cell8_text = await extract_cell_text(cells[7]) if len(cells) > 7 else ''
-                                row_data['receipt_success_rate'] = cell8_text.strip()
+                                row_data['receipt_success_rate'] = cell8_text.strip() if cell8_text else ''
                                 row_data['success_rate'] = row_data['receipt_success_rate']  # 向后兼容
                                 
                                 # 第9列: 十秒回执率
                                 cell9_text = await extract_cell_text(cells[8]) if len(cells) > 8 else ''
-                                row_data['receipt_rate_10s'] = cell9_text.strip()
+                                row_data['receipt_rate_10s'] = cell9_text.strip() if cell9_text else ''
                                 
                                 # 第10列: 三十秒回执率
                                 cell10_text = await extract_cell_text(cells[9]) if len(cells) > 9 else ''
-                                row_data['receipt_rate_30s'] = cell10_text.strip()
+                                row_data['receipt_rate_30s'] = cell10_text.strip() if cell10_text else ''
                                 
                                 # 第11列: 六十秒回执率
                                 cell11_text = await extract_cell_text(cells[10]) if len(cells) > 10 else ''
-                                row_data['receipt_rate_60s'] = cell11_text.strip()
+                                row_data['receipt_rate_60s'] = cell11_text.strip() if cell11_text else ''
                                 
                                 # 设置主要成功率（用于返回）
                                 if not success_rate or idx == 0:
