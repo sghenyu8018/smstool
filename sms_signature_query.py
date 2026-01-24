@@ -774,16 +774,7 @@ async def query_sms_success_rate(
         except Exception as e:
             print(f"  - 按回车键失败: {e}")
         
-        try:
-            # 点击搜索图标（如果存在）
-            search_icon_locator = sls_frame.locator('i.obviz-base-easy-select-folder, .obviz-base-easy-select-control').first
-            
-            if await search_icon_locator.count() > 0:
-                await search_icon_locator.click()
-                await asyncio.sleep(1)
-                print("  ✓ 已点击搜索图标")
-        except Exception:
-            pass
+        # 不需要点击搜索图标，回车即可触发查询
         
         print(f"{'='*60}\n")
         
@@ -855,9 +846,101 @@ async def query_sms_success_rate(
         
         print(f"{'='*60}\n")
         
-        # 6. 等待数据加载并提取成功率
+        # 6. 打印SLS iframe中的所有元素（用于调试）
         print(f"\n{'='*60}")
-        print(f"步骤6: 等待数据加载并提取成功率")
+        print(f"步骤6: 打印SLS iframe中的所有元素（用于判断查询条件和输出内容）")
+        print(f"{'='*60}")
+        
+        try:
+            print("\n【查询条件区域】")
+            # 查找所有筛选条件
+            filter_texts = await sls_frame.query_selector_all('span.obviz-base-filterText')
+            print(f"  - 找到 {len(filter_texts)} 个筛选条件标签:")
+            for idx, filter_text in enumerate(filter_texts[:20], 1):  # 只显示前20个
+                try:
+                    text = await filter_text.inner_text()
+                    print(f"    {idx}. {text}")
+                except Exception:
+                    pass
+            
+            # 查找所有输入框
+            inputs = await sls_frame.query_selector_all('input')
+            print(f"\n  - 找到 {len(inputs)} 个输入框:")
+            for idx, inp in enumerate(inputs[:20], 1):  # 只显示前20个
+                try:
+                    input_type = await inp.get_attribute('type') or 'text'
+                    input_id = await inp.get_attribute('id') or ''
+                    input_class = await inp.get_attribute('class') or ''
+                    input_value = await inp.get_attribute('value') or ''
+                    placeholder = await inp.get_attribute('placeholder') or ''
+                    print(f"    {idx}. type={input_type}, id={input_id[:50]}, class={input_class[:50]}, value={input_value[:50]}, placeholder={placeholder[:50]}")
+                except Exception:
+                    pass
+            
+            # 查找所有按钮
+            buttons = await sls_frame.query_selector_all('button, div[role="button"], div[class*="btn"]')
+            print(f"\n  - 找到 {len(buttons)} 个按钮:")
+            for idx, btn in enumerate(buttons[:20], 1):  # 只显示前20个
+                try:
+                    btn_text = await btn.inner_text()
+                    btn_class = await btn.get_attribute('class') or ''
+                    print(f"    {idx}. 文本='{btn_text[:50]}', class={btn_class[:50]}")
+                except Exception:
+                    pass
+            
+            print("\n【输出内容区域】")
+            # 查找所有表格行
+            table_rows = await sls_frame.query_selector_all('div.obviz-base-easyTable-row, tr, div[class*="table"]')
+            print(f"  - 找到 {len(table_rows)} 个表格行/行元素")
+            
+            # 查找所有表格单元格
+            table_cells = await sls_frame.query_selector_all('div.obviz-base-easyTable-cell, td, div[class*="table-cell"]')
+            print(f"  - 找到 {len(table_cells)} 个表格单元格")
+            
+            # 查找所有包含数字的元素（可能是成功率等数据）
+            print(f"\n  - 查找包含数字的元素（可能是数据）:")
+            all_spans = await sls_frame.query_selector_all('span, div[class*="split-container"]')
+            number_count = 0
+            for span in all_spans[:50]:  # 只检查前50个
+                try:
+                    text = await span.inner_text()
+                    if text and re.match(r'^\d+\.?\d*$', text.strip()):
+                        parent_info = await span.evaluate('''el => {
+                            const parent = el.parentElement;
+                            return {
+                                parentTag: parent ? parent.tagName : '',
+                                parentClass: parent ? (parent.className || '') : '',
+                                outerHTML: el.outerHTML.substring(0, 150)
+                            };
+                        }''')
+                        print(f"    {number_count+1}. 值='{text.strip()}', 父元素={parent_info.get('parentTag', '')}, class={parent_info.get('parentClass', '')[:50]}")
+                        print(f"       HTML: {parent_info.get('outerHTML', '')}")
+                        number_count += 1
+                        if number_count >= 20:  # 只显示前20个数字
+                            break
+                except Exception:
+                    continue
+            
+            # 查找所有div元素（可能包含重要信息）
+            print(f"\n  - 查找重要的div元素:")
+            important_divs = await sls_frame.query_selector_all('div[class*="table"], div[class*="cell"], div[class*="row"], div[class*="container"]')
+            print(f"    找到 {len(important_divs)} 个可能重要的div元素")
+            for idx, div in enumerate(important_divs[:10], 1):  # 只显示前10个
+                try:
+                    div_class = await div.get_attribute('class') or ''
+                    div_text = await div.inner_text()
+                    if div_text and len(div_text.strip()) > 0:
+                        print(f"    {idx}. class={div_class[:80]}, text='{div_text[:50]}'")
+                except Exception:
+                    pass
+                    
+        except Exception as e:
+            print(f"  ✗ 打印元素时出错: {type(e).__name__} - {str(e)}")
+            import traceback
+            print(f"  详细错误: {traceback.format_exc()}")
+        
+        print(f"\n{'='*60}")
+        print(f"步骤7: 等待数据加载并提取成功率")
         print(f"{'='*60}")
         
         print("  - 等待页面加载完成...")
