@@ -453,7 +453,37 @@ async def query_sms_success_rate(
                             if is_visible:
                                 pid_input_locator = first_input
                                 current_frame = frame
-                                print(f"  ✓ 在frame {idx}中找到PID输入框")
+                                
+                                # 打印元素信息
+                                try:
+                                    element_info = await first_input.evaluate('''el => {
+                                        return {
+                                            tagName: el.tagName,
+                                            id: el.id || '',
+                                            className: el.className || '',
+                                            name: el.name || '',
+                                            type: el.type || '',
+                                            value: el.value || '',
+                                            placeholder: el.placeholder || '',
+                                            autocomplete: el.autocomplete || '',
+                                            outerHTML: el.outerHTML.substring(0, 200) + (el.outerHTML.length > 200 ? '...' : '')
+                                        };
+                                    }''')
+                                    print(f"  ✓ 在frame {idx}中找到PID输入框")
+                                    print(f"  元素信息:")
+                                    print(f"    - 标签: {element_info.get('tagName', 'N/A')}")
+                                    print(f"    - ID: {element_info.get('id', 'N/A')}")
+                                    print(f"    - Class: {element_info.get('className', 'N/A')}")
+                                    print(f"    - Name: {element_info.get('name', 'N/A')}")
+                                    print(f"    - Type: {element_info.get('type', 'N/A')}")
+                                    print(f"    - Value: {element_info.get('value', 'N/A')}")
+                                    print(f"    - Placeholder: {element_info.get('placeholder', 'N/A')}")
+                                    print(f"    - Autocomplete: {element_info.get('autocomplete', 'N/A')}")
+                                    print(f"    - HTML片段: {element_info.get('outerHTML', 'N/A')}")
+                                except Exception as e:
+                                    print(f"  ✓ 在frame {idx}中找到PID输入框")
+                                    print(f"  (获取元素详细信息时出错: {e})")
+                                
                                 break
             except Exception as e:
                 print(f"    - frame {idx} 查找失败: {type(e).__name__} - {str(e)}")
@@ -490,84 +520,40 @@ async def query_sms_success_rate(
                             if is_pid_input:
                                 pid_input_locator = input_loc
                                 current_frame = frame
-                                print(f"  ✓ 在frame {idx}的输入框 {inp_idx+1}中找到PID输入框")
+                                
+                                # 打印元素信息
+                                try:
+                                    element_info = await input_loc.evaluate('''el => {
+                                        return {
+                                            tagName: el.tagName,
+                                            id: el.id || '',
+                                            className: el.className || '',
+                                            name: el.name || '',
+                                            type: el.type || '',
+                                            value: el.value || '',
+                                            placeholder: el.placeholder || '',
+                                            autocomplete: el.autocomplete || '',
+                                            outerHTML: el.outerHTML.substring(0, 200) + (el.outerHTML.length > 200 ? '...' : '')
+                                        };
+                                    }''')
+                                    print(f"  ✓ 在frame {idx}的输入框 {inp_idx+1}中找到PID输入框")
+                                    print(f"  元素信息:")
+                                    print(f"    - 标签: {element_info.get('tagName', 'N/A')}")
+                                    print(f"    - ID: {element_info.get('id', 'N/A')}")
+                                    print(f"    - Class: {element_info.get('className', 'N/A')}")
+                                    print(f"    - Name: {element_info.get('name', 'N/A')}")
+                                    print(f"    - Type: {element_info.get('type', 'N/A')}")
+                                    print(f"    - Value: {element_info.get('value', 'N/A')}")
+                                    print(f"    - Placeholder: {element_info.get('placeholder', 'N/A')}")
+                                    print(f"    - Autocomplete: {element_info.get('autocomplete', 'N/A')}")
+                                    print(f"    - HTML片段: {element_info.get('outerHTML', 'N/A')}")
+                                except Exception as e:
+                                    print(f"  ✓ 在frame {idx}的输入框 {inp_idx+1}中找到PID输入框")
+                                    print(f"  (获取元素详细信息时出错: {e})")
+                                
                                 break
                     
                     if pid_input_locator:
-                        break
-                except Exception as e:
-                    print(f"    - frame {idx} 查找失败: {type(e).__name__} - {str(e)}")
-                    continue
-        
-        # 最终检查
-        if not pid_input_locator:
-            print("\n[方式8] 在iframe中查找PID输入框...")
-            for idx, frame in enumerate(iframes):
-                if frame == page.main_frame:
-                    continue  # 跳过主frame，已经查找过了
-                
-                try:
-                    print(f"  - 检查iframe {idx} (name='{frame.name or 'unnamed'}')...")
-                    
-                    # 等待iframe加载
-                    await frame.wait_for_load_state('domcontentloaded', timeout=5000)
-                    
-                    # 在iframe中查找pid标签
-                    pid_label_locator = frame.locator('span.obviz-base-filterText').filter(has_text='pid')
-                    count = await pid_label_locator.count()
-                    print(f"    - 在iframe中找到 {count} 个pid标签")
-                    
-                    if count > 0:
-                        # 找到pid标签后，查找输入框
-                        container_locator = pid_label_locator.locator('xpath=ancestor::div[contains(@class, "obviz-base-easy-select-inner")]')
-                        container_count = await container_locator.count()
-                        print(f"    - 找到 {container_count} 个父容器")
-                        
-                        if container_count > 0:
-                            input_locator = container_locator.locator('span.obviz-base-filterInput input[autocomplete="off"]')
-                            input_count = await input_locator.count()
-                            print(f"    - 在容器内找到 {input_count} 个输入框")
-                            
-                            if input_count > 0:
-                                pid_input = await input_locator.first.element_handle()
-                                current_frame = frame
-                                is_visible = await pid_input.is_visible()
-                                value = await pid_input.get_attribute('value') or ''
-                                print(f"  ✓ 在iframe {idx}中找到PID输入框 (可见: {is_visible}, 当前值: '{value}')")
-                                break
-                except Exception as e:
-                    print(f"    - iframe {idx} 查找失败: {type(e).__name__} - {str(e)}")
-                    continue
-        
-        # 方式9: 在所有frame中查找所有输入框
-        if not pid_input:
-            print("\n[方式9] 在所有frame中查找所有输入框...")
-            for idx, frame in enumerate(iframes):
-                try:
-                    print(f"  - 在frame {idx}中查找...")
-                    await frame.wait_for_load_state('domcontentloaded', timeout=3000)
-                    
-                    all_inputs = await frame.query_selector_all('span.obviz-base-filterInput input[autocomplete="off"]')
-                    print(f"    - 找到 {len(all_inputs)} 个输入框")
-                    
-                    for inp_idx, inp in enumerate(all_inputs, 1):
-                        is_visible = await inp.is_visible()
-                        if is_visible:
-                            # 检查是否在pid容器内
-                            is_pid_input = await inp.evaluate('''el => {
-                                const container = el.closest("div.obviz-base-easy-select-inner");
-                                if (!container) return false;
-                                const pidLabel = container.querySelector('span.obviz-base-filterText');
-                                return pidLabel && pidLabel.textContent.trim().toLowerCase() === 'pid';
-                            }''')
-                            
-                            if is_pid_input:
-                                pid_input = inp
-                                current_frame = frame
-                                print(f"  ✓ 在frame {idx}的输入框 {inp_idx}中找到PID输入框")
-                                break
-                    
-                    if pid_input:
                         break
                 except Exception as e:
                     print(f"    - frame {idx} 查找失败: {type(e).__name__} - {str(e)}")
