@@ -104,10 +104,17 @@ if __name__ == '__main__':
                 
                 # 如果有多行数据，显示所有数据
                 if success_rate_result.get('data'):
-                    print(f"\n共找到 {success_rate_result.get('total_count', 0)} 条记录:")
+                    matched_count = success_rate_result.get('matched_count', 0)
+                    total_count = success_rate_result.get('total_count', 0)
+                    if matched_count > 0:
+                        print(f"\n共找到 {matched_count} 条PID匹配的记录（总计 {total_count} 条）:")
+                    else:
+                        print(f"\n共找到 {total_count} 条记录:")
                     for i, row in enumerate(success_rate_result['data'], 1):
-                        print(f"  {i}. 签名: {row.get('sign_name', 'N/A')}, "
-                              f"成功率: {row.get('success_rate', 'N/A')}%")
+                        sign_name = row.get('signname') or row.get('sign_name', 'N/A')
+                        success_rate = row.get('receipt_success_rate') or row.get('success_rate', 'N/A')
+                        print(f"  {i}. 签名: {sign_name}, "
+                              f"成功率: {success_rate}%")
             else:
                 print(f"\n[FAIL] 成功率查询失败: {success_rate_result['error']}")
                 

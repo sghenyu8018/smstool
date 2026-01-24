@@ -311,6 +311,8 @@ async def query_sms_success_rate(
         # 方式2: 如果方式1失败，在SLS iframe中查找所有输入框并验证
         if not pid_input_locator:
             print("\n[方式2] 在SLS iframe中查找所有输入框并验证...")
+        else:
+            print("\n[方式2] 跳过（方式1已成功）")
             try:
                 all_inputs_locator = sls_frame.locator('span.obviz-base-filterInput input[autocomplete="off"]')
                 count = await all_inputs_locator.count()
@@ -353,6 +355,7 @@ async def query_sms_success_rate(
         else:
             print(f"✓ PID输入框定位成功 (在SLS iframe中)")
             print(f"{'='*60}\n")
+            # 方式1已成功，跳过方式2
         
         # 4. 填写PID（在SLS iframe中填写）
         print(f"\n{'='*60}")
@@ -542,7 +545,7 @@ async def query_sms_success_rate(
         print("  - 等待数据加载完成...")
         
         # 等待表格数据加载：等待"客户签名视角 -剔除重试过程"表格的数据行出现
-        max_wait_retries = 30  # 最多等待30次，每次2秒，总共最多60秒
+        max_wait_retries = 20  # 最多等待20次，每次1秒，总共最多20秒
         retry_count = 0
         table_ready = False
         target_table_container = None
@@ -580,33 +583,33 @@ async def query_sms_success_rate(
                         row_count = container_info.get('rowCount', 0)
                         
                         if row_count > 0:
-                            # 找到表格容器且有数据行
+                            # 找到表格容器且有数据行，立即退出
                             target_table_container = sls_frame.locator(f'#{container_id}')
                             table_ready = True
-                            print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据")
+                            print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据（等待 {retry_count + 1} 次）")
                             break
                         else:
                             # 找到容器但还没有数据行，继续等待
-                            if retry_count % 5 == 0:  # 每5次打印一次进度
+                            if retry_count % 3 == 0:  # 每3次打印一次进度
                                 print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，表格容器已找到但数据未加载")
                 else:
                     # 标题元素还未出现
-                    if retry_count % 5 == 0:
+                    if retry_count % 3 == 0:
                         print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，标题元素未找到")
                 
             except Exception as e:
-                if retry_count % 5 == 0:
+                if retry_count % 3 == 0:
                     print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，检查时出错: {type(e).__name__}")
             
             retry_count += 1
             if not table_ready and retry_count < max_wait_retries:
-                await asyncio.sleep(2)  # 等待2秒后重试
+                await asyncio.sleep(1)  # 等待1秒后重试（减少等待时间）
         
         if not table_ready:
-            print(f"  ⚠ 等待表格数据加载超时（已等待 {retry_count * 2} 秒），尝试继续查找...")
+            print(f"  ⚠ 等待表格数据加载超时（已等待 {retry_count} 秒），尝试继续查找...")
         
-        # 额外等待一段时间，确保数据完全渲染
-        await asyncio.sleep(2)
+        # 额外等待一段时间，确保数据完全渲染（减少等待时间）
+        await asyncio.sleep(1)
         
         # 8. 从表格中提取数据
         success_rate = None
