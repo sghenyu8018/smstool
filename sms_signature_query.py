@@ -755,24 +755,114 @@ async def query_sms_success_rate(
             print(f"{'='*60}\n")
         
         # 4. 填写PID（使用找到的frame）
-        print(f"\n开始填写PID到输入框...")
+        print(f"\n{'='*60}")
+        print(f"步骤4: 填写PID到输入框")
+        print(f"{'='*60}")
+        
         if current_frame != page:
             print(f"  注意: 输入框在iframe中，将使用iframe进行操作")
         
-        await pid_input.fill(pid)
-        await asyncio.sleep(1)  # 等待输入完成
-        
-        # 验证输入是否成功
-        value_after = await pid_input.get_attribute('value') or ''
-        print(f"  ✓ PID已填写，当前值: '{value_after}'")
+        try:
+            # 方法1: 先点击输入框，确保获得焦点
+            print("  - 点击输入框获取焦点...")
+            await pid_input.click()
+            await asyncio.sleep(0.3)
+            
+            # 方法2: 清空输入框（如果有内容）
+            print("  - 清空输入框...")
+            await pid_input.evaluate('el => el.value = ""')
+            await asyncio.sleep(0.2)
+            
+            # 方法3: 使用fill方法填写
+            print(f"  - 填写PID: {pid}...")
+            await pid_input.fill(pid)
+            await asyncio.sleep(0.5)
+            
+            # 方法4: 验证并触发input事件（确保页面识别输入）
+            value_after = await pid_input.get_attribute('value') or ''
+            print(f"  - 填写后值: '{value_after}'")
+            
+            if value_after != pid:
+                print("  - 值不匹配，尝试使用JavaScript直接设置...")
+                # 使用JavaScript直接设置值并触发事件
+                await pid_input.evaluate(f'''el => {{
+                    el.value = "{pid}";
+                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }}''')
+                await asyncio.sleep(0.5)
+                
+                # 再次验证
+                value_after = await pid_input.get_attribute('value') or ''
+                print(f"  - JavaScript设置后值: '{value_after}'")
+            
+            # 方法5: 如果还是不行，尝试逐字符输入
+            if value_after != pid:
+                print("  - 尝试逐字符输入...")
+                await pid_input.click()
+                await pid_input.evaluate('el => el.value = ""')
+                await asyncio.sleep(0.2)
+                
+                for char in pid:
+                    await pid_input.type(char, delay=50)  # 每个字符延迟50ms
+                
+                await asyncio.sleep(0.5)
+                value_after = await pid_input.get_attribute('value') or ''
+                print(f"  - 逐字符输入后值: '{value_after}'")
+            
+            # 最终验证
+            if value_after == pid:
+                print(f"  ✓ PID填写成功！当前值: '{value_after}'")
+            else:
+                print(f"  ⚠ PID填写可能不完整，期望: '{pid}', 实际: '{value_after}'")
+                # 即使不匹配也继续，可能页面有格式化
+            
+        except Exception as e:
+            print(f"  ✗ 填写PID时出错: {type(e).__name__} - {str(e)}")
+            # 尝试使用locator方式填写
+            try:
+                print("  - 尝试使用locator方式填写...")
+                if current_frame != page:
+                    input_locator = current_frame.locator('span.obviz-base-filterInput input[autocomplete="off"]').filter(has_text='').first
+                else:
+                    # 重新定位输入框
+                    pid_label_locator = page.locator('span.obviz-base-filterText').filter(has_text='pid')
+                    container_locator = pid_label_locator.locator('xpath=ancestor::div[contains(@class, "obviz-base-easy-select-inner")]')
+                    input_locator = container_locator.locator('span.obviz-base-filterInput input[autocomplete="off"]').first
+                
+                await input_locator.click()
+                await asyncio.sleep(0.3)
+                await input_locator.fill(pid)
+                await asyncio.sleep(0.5)
+                print(f"  ✓ 使用locator方式填写完成")
+            except Exception as e2:
+                print(f"  ✗ locator方式也失败: {type(e2).__name__} - {str(e2)}")
         
         # 如果输入框在下拉选择器中，可能需要触发搜索或选择
+        print("\n  - 尝试触发搜索/选择...")
         try:
-            # 尝试按回车键或点击搜索图标
+            # 方法1: 按回车键
             await pid_input.press('Enter')
             await asyncio.sleep(1)
+            print("  ✓ 已按回车键")
+        except Exception as e:
+            print(f"  - 按回车键失败: {e}")
+        
+        try:
+            # 方法2: 点击搜索图标（如果存在）
+            if current_frame != page:
+                search_icon = await current_frame.query_selector('i.obviz-base-easy-select-folder, .obviz-base-easy-select-control')
+            else:
+                search_icon = await page.query_selector('i.obviz-base-easy-select-folder, .obviz-base-easy-select-control')
+            
+            if search_icon:
+                await search_icon.click()
+                await asyncio.sleep(1)
+                print("  ✓ 已点击搜索图标")
         except Exception:
             pass
+        
+        print(f"{'='*60}\n")
         
         # 4. 选择时间范围（本周）
         print("正在选择时间范围：本周")
