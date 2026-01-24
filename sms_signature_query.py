@@ -433,12 +433,13 @@ async def query_sms_success_rate(
                 print(f"    - 找到 {count} 个pid标签")
                 
                 if count > 0:
-                    # 找到pid标签后，查找输入框
+                    # 找到pid标签后，查找父容器
                     container_locator = pid_label_locator.locator('xpath=ancestor::div[contains(@class, "obviz-base-easy-select-inner")]')
                     container_count = await container_locator.count()
                     print(f"    - 找到 {container_count} 个父容器")
                     
                     if container_count > 0:
+                        # 先尝试查找已存在的可见输入框
                         input_locator = container_locator.locator('span.obviz-base-filterInput input[autocomplete="off"]')
                         input_count = await input_locator.count()
                         print(f"    - 在容器内找到 {input_count} 个输入框")
@@ -469,7 +470,7 @@ async def query_sms_success_rate(
                                             outerHTML: el.outerHTML.substring(0, 200) + (el.outerHTML.length > 200 ? '...' : '')
                                         };
                                     }''')
-                                    print(f"  ✓ 在frame {idx}中找到PID输入框")
+                                    print(f"  ✓ 在frame {idx}中找到PID输入框（已可见）")
                                     print(f"  元素信息:")
                                     print(f"    - 标签: {element_info.get('tagName', 'N/A')}")
                                     print(f"    - ID: {element_info.get('id', 'N/A')}")
@@ -481,10 +482,121 @@ async def query_sms_success_rate(
                                     print(f"    - Autocomplete: {element_info.get('autocomplete', 'N/A')}")
                                     print(f"    - HTML片段: {element_info.get('outerHTML', 'N/A')}")
                                 except Exception as e:
-                                    print(f"  ✓ 在frame {idx}中找到PID输入框")
+                                    print(f"  ✓ 在frame {idx}中找到PID输入框（已可见）")
                                     print(f"  (获取元素详细信息时出错: {e})")
                                 
                                 break
+                        
+                        # 如果输入框不可见或不存在，尝试点击值容器来激活
+                        print(f"    - 输入框不可见或不存在，尝试点击值容器激活...")
+                        try:
+                            # 尝试多种值容器选择器
+                            value_container_selectors = [
+                                'div.obviz-base-easy-select-value',
+                                'div.obviz-base-easy-select-text-field',
+                                '.obviz-base-easy-select-value',
+                                '.obviz-base-easy-select-text-field',
+                                'div[class*="easy-select-value"]',
+                                'div[class*="easy-select-text"]'
+                            ]
+                            
+                            value_container = None
+                            for selector in value_container_selectors:
+                                try:
+                                    value_locator = container_locator.locator(selector).first
+                                    if await value_locator.count() > 0:
+                                        is_visible = await value_locator.is_visible()
+                                        if is_visible:
+                                            value_container = value_locator
+                                            print(f"    - 找到值容器: {selector}")
+                                            break
+                                except Exception:
+                                    continue
+                            
+                            if value_container:
+                                # 点击值容器来激活输入框
+                                print(f"    - 点击值容器激活输入框...")
+                                await value_container.click()
+                                await asyncio.sleep(1)  # 等待输入框出现
+                                
+                                # 再次查找输入框
+                                input_locator = container_locator.locator('span.obviz-base-filterInput input[autocomplete="off"]')
+                                input_count = await input_locator.count()
+                                print(f"    - 点击后找到 {input_count} 个输入框")
+                                
+                                if input_count > 0:
+                                    first_input = input_locator.first
+                                    is_visible = await first_input.is_visible()
+                                    value = await first_input.get_attribute('value') or ''
+                                    print(f"    - 输入框: 可见={is_visible}, 当前值='{value}'")
+                                    
+                                    if is_visible:
+                                        pid_input_locator = first_input
+                                        current_frame = frame
+                                        
+                                        # 打印元素信息
+                                        try:
+                                            element_info = await first_input.evaluate('''el => {
+                                                return {
+                                                    tagName: el.tagName,
+                                                    id: el.id || '',
+                                                    className: el.className || '',
+                                                    name: el.name || '',
+                                                    type: el.type || '',
+                                                    value: el.value || '',
+                                                    placeholder: el.placeholder || '',
+                                                    autocomplete: el.autocomplete || '',
+                                                    outerHTML: el.outerHTML.substring(0, 200) + (el.outerHTML.length > 200 ? '...' : '')
+                                                };
+                                            }''')
+                                            print(f"  ✓ 在frame {idx}中找到PID输入框（已激活）")
+                                            print(f"  元素信息:")
+                                            print(f"    - 标签: {element_info.get('tagName', 'N/A')}")
+                                            print(f"    - ID: {element_info.get('id', 'N/A')}")
+                                            print(f"    - Class: {element_info.get('className', 'N/A')}")
+                                            print(f"    - Name: {element_info.get('name', 'N/A')}")
+                                            print(f"    - Type: {element_info.get('type', 'N/A')}")
+                                            print(f"    - Value: {element_info.get('value', 'N/A')}")
+                                            print(f"    - Placeholder: {element_info.get('placeholder', 'N/A')}")
+                                            print(f"    - Autocomplete: {element_info.get('autocomplete', 'N/A')}")
+                                            print(f"    - HTML片段: {element_info.get('outerHTML', 'N/A')}")
+                                        except Exception as e:
+                                            print(f"  ✓ 在frame {idx}中找到PID输入框（已激活）")
+                                            print(f"  (获取元素详细信息时出错: {e})")
+                                        
+                                        break
+                                    else:
+                                        print(f"    - 输入框仍然不可见，尝试等待...")
+                                        # 等待输入框变为可见
+                                        try:
+                                            await first_input.wait_for(state='visible', timeout=3000)
+                                            pid_input_locator = first_input
+                                            current_frame = frame
+                                            print(f"  ✓ 在frame {idx}中找到PID输入框（等待后可见）")
+                                            break
+                                        except Exception:
+                                            print(f"    - 等待超时，输入框仍未可见")
+                            else:
+                                # 如果找不到值容器，尝试直接点击容器
+                                print(f"    - 未找到值容器，尝试点击整个容器...")
+                                await container_locator.first.click()
+                                await asyncio.sleep(1)
+                                
+                                # 再次查找输入框
+                                input_locator = container_locator.locator('span.obviz-base-filterInput input[autocomplete="off"]')
+                                input_count = await input_locator.count()
+                                if input_count > 0:
+                                    first_input = input_locator.first
+                                    try:
+                                        await first_input.wait_for(state='visible', timeout=3000)
+                                        pid_input_locator = first_input
+                                        current_frame = frame
+                                        print(f"  ✓ 在frame {idx}中找到PID输入框（点击容器后可见）")
+                                        break
+                                    except Exception:
+                                        pass
+                        except Exception as e:
+                            print(f"    - 激活输入框时出错: {type(e).__name__} - {str(e)}")
             except Exception as e:
                 print(f"    - frame {idx} 查找失败: {type(e).__name__} - {str(e)}")
                 continue
@@ -518,40 +630,79 @@ async def query_sms_success_rate(
                             print(f"      - 检查结果: {is_pid_input}")
                             
                             if is_pid_input:
-                                pid_input_locator = input_loc
-                                current_frame = frame
+                                # 如果输入框不可见，尝试点击值容器激活
+                                if not is_visible:
+                                    print(f"      - 输入框不可见，尝试激活...")
+                                    try:
+                                        # 使用locator找到父容器
+                                        container_locator = input_loc.locator('xpath=ancestor::div[contains(@class, "obviz-base-easy-select-inner")]')
+                                        if await container_locator.count() > 0:
+                                            # 尝试点击值容器
+                                            value_selectors = [
+                                                'div.obviz-base-easy-select-value',
+                                                'div.obviz-base-easy-select-text-field',
+                                                '.obviz-base-easy-select-value',
+                                                '.obviz-base-easy-select-text-field'
+                                            ]
+                                            clicked = False
+                                            for selector in value_selectors:
+                                                try:
+                                                    value_locator = container_locator.locator(selector).first
+                                                    if await value_locator.count() > 0:
+                                                        await value_locator.click()
+                                                        await asyncio.sleep(1)
+                                                        clicked = True
+                                                        print(f"      - 已点击值容器: {selector}")
+                                                        break
+                                                except Exception:
+                                                    continue
+                                            
+                                            if clicked:
+                                                # 等待输入框变为可见
+                                                try:
+                                                    await input_loc.wait_for(state='visible', timeout=3000)
+                                                    is_visible = True
+                                                    print(f"      - 输入框已激活并可见")
+                                                except Exception:
+                                                    print(f"      - 等待超时，输入框仍未可见")
+                                    except Exception as e:
+                                        print(f"      - 激活输入框时出错: {e}")
                                 
-                                # 打印元素信息
-                                try:
-                                    element_info = await input_loc.evaluate('''el => {
-                                        return {
-                                            tagName: el.tagName,
-                                            id: el.id || '',
-                                            className: el.className || '',
-                                            name: el.name || '',
-                                            type: el.type || '',
-                                            value: el.value || '',
-                                            placeholder: el.placeholder || '',
-                                            autocomplete: el.autocomplete || '',
-                                            outerHTML: el.outerHTML.substring(0, 200) + (el.outerHTML.length > 200 ? '...' : '')
-                                        };
-                                    }''')
-                                    print(f"  ✓ 在frame {idx}的输入框 {inp_idx+1}中找到PID输入框")
-                                    print(f"  元素信息:")
-                                    print(f"    - 标签: {element_info.get('tagName', 'N/A')}")
-                                    print(f"    - ID: {element_info.get('id', 'N/A')}")
-                                    print(f"    - Class: {element_info.get('className', 'N/A')}")
-                                    print(f"    - Name: {element_info.get('name', 'N/A')}")
-                                    print(f"    - Type: {element_info.get('type', 'N/A')}")
-                                    print(f"    - Value: {element_info.get('value', 'N/A')}")
-                                    print(f"    - Placeholder: {element_info.get('placeholder', 'N/A')}")
-                                    print(f"    - Autocomplete: {element_info.get('autocomplete', 'N/A')}")
-                                    print(f"    - HTML片段: {element_info.get('outerHTML', 'N/A')}")
-                                except Exception as e:
-                                    print(f"  ✓ 在frame {idx}的输入框 {inp_idx+1}中找到PID输入框")
-                                    print(f"  (获取元素详细信息时出错: {e})")
-                                
-                                break
+                                if is_visible:
+                                    pid_input_locator = input_loc
+                                    current_frame = frame
+                                    
+                                    # 打印元素信息
+                                    try:
+                                        element_info = await input_loc.evaluate('''el => {
+                                            return {
+                                                tagName: el.tagName,
+                                                id: el.id || '',
+                                                className: el.className || '',
+                                                name: el.name || '',
+                                                type: el.type || '',
+                                                value: el.value || '',
+                                                placeholder: el.placeholder || '',
+                                                autocomplete: el.autocomplete || '',
+                                                outerHTML: el.outerHTML.substring(0, 200) + (el.outerHTML.length > 200 ? '...' : '')
+                                            };
+                                        }''')
+                                        print(f"  ✓ 在frame {idx}的输入框 {inp_idx+1}中找到PID输入框")
+                                        print(f"  元素信息:")
+                                        print(f"    - 标签: {element_info.get('tagName', 'N/A')}")
+                                        print(f"    - ID: {element_info.get('id', 'N/A')}")
+                                        print(f"    - Class: {element_info.get('className', 'N/A')}")
+                                        print(f"    - Name: {element_info.get('name', 'N/A')}")
+                                        print(f"    - Type: {element_info.get('type', 'N/A')}")
+                                        print(f"    - Value: {element_info.get('value', 'N/A')}")
+                                        print(f"    - Placeholder: {element_info.get('placeholder', 'N/A')}")
+                                        print(f"    - Autocomplete: {element_info.get('autocomplete', 'N/A')}")
+                                        print(f"    - HTML片段: {element_info.get('outerHTML', 'N/A')}")
+                                    except Exception as e:
+                                        print(f"  ✓ 在frame {idx}的输入框 {inp_idx+1}中找到PID输入框")
+                                        print(f"  (获取元素详细信息时出错: {e})")
+                                    
+                                    break
                     
                     if pid_input_locator:
                         break
