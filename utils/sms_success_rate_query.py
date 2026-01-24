@@ -538,27 +538,22 @@ async def query_sms_success_rate(
         print(f"步骤7: 等待数据加载并提取成功率")
         print(f"{'='*60}")
         
-        print("  - 等待页面加载完成...")
-        await asyncio.sleep(3)
+        # 7. 等待数据加载完成
+        print("  - 等待数据加载完成...")
         
-        # 7. 从表格中提取数据
-        success_rate = None
-        all_data = []
+        # 等待表格数据加载：等待"客户签名视角 -剔除重试过程"表格的数据行出现
+        max_wait_retries = 30  # 最多等待30次，每次2秒，总共最多60秒
+        retry_count = 0
+        table_ready = False
+        target_table_container = None
         
-        try:
-            # 在SLS iframe中查找"客户签名视角 -剔除重试过程"表格
-            print("  - 在SLS iframe中查找'客户签名视角 -剔除重试过程'表格...")
-            
-            # 方法1: 先找到包含标题的元素，然后定位到对应的表格
-            target_table_container = None
-            
+        while retry_count < max_wait_retries and not table_ready:
             try:
                 # 查找包含"客户签名视角 -剔除重试过程"标题的元素
                 title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
                 title_count = await title_locator.count()
                 
                 if title_count > 0:
-                    print(f"  ✓ 找到标题元素")
                     title_element = title_locator.first
                     
                     # 通过JavaScript查找包含表格的父容器
@@ -566,10 +561,13 @@ async def query_sms_success_rate(
                         let current = el;
                         while (current) {
                             if (current.id && current.id.startsWith('sls_chart_')) {
+                                const tableBody = current.querySelector('div.obviz-base-easyTable-body');
+                                const rows = tableBody ? tableBody.querySelectorAll('div.obviz-base-easyTable-row') : [];
                                 return {
                                     found: true,
                                     id: current.id,
-                                    hasTable: current.querySelector('div.obviz-base-easyTable-body') !== null
+                                    hasTable: tableBody !== null,
+                                    rowCount: rows.length
                                 };
                             }
                             current = current.parentElement;
@@ -578,34 +576,103 @@ async def query_sms_success_rate(
                     }''')
                     
                     if container_info.get('found'):
-                        print(f"  ✓ 找到表格容器: {container_info.get('id')}")
-                        target_table_container = sls_frame.locator(f'#{container_info["id"]}')
-                    else:
-                        target_table_container = title_locator.locator('xpath=ancestor::div[contains(@id, "sls_chart_")]')
-                        container_count = await target_table_container.count()
-                        if container_count == 0:
-                            target_table_container = None
+                        container_id = container_info.get('id')
+                        row_count = container_info.get('rowCount', 0)
+                        
+                        if row_count > 0:
+                            # 找到表格容器且有数据行
+                            target_table_container = sls_frame.locator(f'#{container_id}')
+                            table_ready = True
+                            print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据")
+                            break
+                        else:
+                            # 找到容器但还没有数据行，继续等待
+                            if retry_count % 5 == 0:  # 每5次打印一次进度
+                                print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，表格容器已找到但数据未加载")
+                else:
+                    # 标题元素还未出现
+                    if retry_count % 5 == 0:
+                        print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，标题元素未找到")
+                
             except Exception as e:
-                print(f"  ⚠ 查找标题元素时出错: {e}")
+                if retry_count % 5 == 0:
+                    print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，检查时出错: {type(e).__name__}")
             
-            # 方法2: 如果方法1失败，直接查找包含表格的容器
+            retry_count += 1
+            if not table_ready and retry_count < max_wait_retries:
+                await asyncio.sleep(2)  # 等待2秒后重试
+        
+        if not table_ready:
+            print(f"  ⚠ 等待表格数据加载超时（已等待 {retry_count * 2} 秒），尝试继续查找...")
+        
+        # 额外等待一段时间，确保数据完全渲染
+        await asyncio.sleep(2)
+        
+        # 8. 从表格中提取数据
+        success_rate = None
+        all_data = []
+        
+        try:
+            # 在SLS iframe中查找"客户签名视角 -剔除重试过程"表格
+            print("  - 在SLS iframe中查找'客户签名视角 -剔除重试过程'表格...")
+            
+            # 如果等待过程中已找到容器，直接使用；否则重新查找
             if not target_table_container:
-                print("  - 尝试直接查找包含表格的容器...")
+                # 方法1: 先找到包含标题的元素，然后定位到对应的表格
                 try:
-                    chart_containers = await sls_frame.query_selector_all('div[id^="sls_chart_"]')
-                    print(f"    找到 {len(chart_containers)} 个图表容器")
+                    # 查找包含"客户签名视角 -剔除重试过程"标题的元素
+                    title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
+                    title_count = await title_locator.count()
                     
-                    for container in chart_containers:
-                        title_in_container = await container.query_selector('span:has-text("客户签名视角 -剔除重试过程")')
-                        if title_in_container:
-                            table_body = await container.query_selector('div.obviz-base-easyTable-body')
-                            if table_body:
-                                container_id = await container.get_attribute('id')
-                                print(f"  ✓ 找到目标表格容器: {container_id}")
-                                target_table_container = sls_frame.locator(f'#{container_id}')
-                                break
+                    if title_count > 0:
+                        print(f"  ✓ 找到标题元素")
+                        title_element = title_locator.first
+                        
+                        # 通过JavaScript查找包含表格的父容器
+                        container_info = await title_element.evaluate('''el => {
+                            let current = el;
+                            while (current) {
+                                if (current.id && current.id.startsWith('sls_chart_')) {
+                                    return {
+                                        found: true,
+                                        id: current.id,
+                                        hasTable: current.querySelector('div.obviz-base-easyTable-body') !== null
+                                    };
+                                }
+                                current = current.parentElement;
+                            }
+                            return { found: false };
+                        }''')
+                        
+                        if container_info.get('found'):
+                            print(f"  ✓ 找到表格容器: {container_info.get('id')}")
+                            target_table_container = sls_frame.locator(f'#{container_info["id"]}')
+                        else:
+                            target_table_container = title_locator.locator('xpath=ancestor::div[contains(@id, "sls_chart_")]')
+                            container_count = await target_table_container.count()
+                            if container_count == 0:
+                                target_table_container = None
                 except Exception as e:
-                    print(f"  ⚠ 直接查找容器时出错: {e}")
+                    print(f"  ⚠ 查找标题元素时出错: {e}")
+                
+                # 方法2: 如果方法1失败，直接查找包含表格的容器
+                if not target_table_container:
+                    print("  - 尝试直接查找包含表格的容器...")
+                    try:
+                        chart_containers = await sls_frame.query_selector_all('div[id^="sls_chart_"]')
+                        print(f"    找到 {len(chart_containers)} 个图表容器")
+                        
+                        for container in chart_containers:
+                            title_in_container = await container.query_selector('span:has-text("客户签名视角 -剔除重试过程")')
+                            if title_in_container:
+                                table_body = await container.query_selector('div.obviz-base-easyTable-body')
+                                if table_body:
+                                    container_id = await container.get_attribute('id')
+                                    print(f"  ✓ 找到目标表格容器: {container_id}")
+                                    target_table_container = sls_frame.locator(f'#{container_id}')
+                                    break
+                    except Exception as e:
+                        print(f"  ⚠ 直接查找容器时出错: {e}")
             
             # 在目标表格容器中查找表格行
             if target_table_container:
