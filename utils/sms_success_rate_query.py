@@ -815,20 +815,36 @@ async def query_sms_success_rate(
         except Exception as e:
             print(f"提取数据时出错: {e}")
         
+        # 确定返回的数据和成功率
+        # 如果提供了PID且有匹配的数据，优先使用匹配的数据
+        if pid and matched_data:
+            print(f"\n  ✓ 找到 {len(matched_data)} 条PID匹配的数据（PID: {pid}）")
+            # 使用匹配数据的第一条作为主要成功率（或者可以计算平均值）
+            success_rate = matched_data[0].get('receipt_success_rate', '')
+            return_data = matched_data
+            print(f"  ✓ 使用PID匹配数据的成功率: {success_rate}%")
+        elif all_data:
+            # 如果没有匹配的数据，使用所有数据
+            if pid:
+                print(f"\n  ⚠ 未找到PID匹配的数据（PID: {pid}），使用所有数据")
+            success_rate = all_data[0].get('receipt_success_rate', '') if all_data else None
+            return_data = all_data
+        else:
+            return_data = []
+            success_rate = None
+        
         # 检查是否成功提取到成功率
-        if success_rate or all_data:
+        if success_rate and return_data:
             result = {
                 'success': True,
-                'success_rate': success_rate or (all_data[0].get('receipt_success_rate') if all_data else None),
+                'success_rate': success_rate,
                 'pid': pid,
                 'time_range': time_range,
-                'data': all_data if all_data else None,
+                'data': return_data,
+                'total_count': len(return_data),
+                'matched_count': len(matched_data) if pid else len(return_data),
                 'error': None
             }
-            
-            if all_data:
-                result['total_count'] = len(all_data)
-            
             return result
         else:
             return {
