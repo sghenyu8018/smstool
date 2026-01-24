@@ -91,7 +91,8 @@ async def create_playwright_session(
     x_password: str = None,
     browser_type: str = 'chromium',
     browser_channel: str = None,
-    headless: bool = False
+    headless: bool = False,
+    viewport: dict = None
 ):
     """
     创建一个已登录的 Playwright 会话（使用纯 Playwright，不依赖 browser-use）
@@ -102,6 +103,7 @@ async def create_playwright_session(
         browser_type: 浏览器类型 ('chromium', 'firefox', 'webkit')
         browser_channel: 浏览器渠道（如 'msedge', 'chrome'）
         headless: 是否无头模式
+        viewport: 浏览器窗口尺寸，格式为 {'width': int, 'height': int}，默认 {'width': 1280, 'height': 1100}
         
     Returns:
         tuple: (playwright, browser, context, page) - Playwright 对象、浏览器、上下文和页面
@@ -148,9 +150,13 @@ async def create_playwright_session(
     session_manager = SessionManager(SESSION_PATH)
     storage_state = session_manager.get_storage_state(max_age_hours=24)
     
-    # 创建浏览器上下文（使用全屏尺寸）
+    # 设置默认 viewport 尺寸
+    if viewport is None:
+        viewport = {'width': 1280, 'height': 1100}
+    
+    # 创建浏览器上下文（使用指定尺寸）
     context = await browser.new_context(
-        viewport={'width': 1280, 'height': 1100},  # 设置浏览器窗口尺寸
+        viewport=viewport,  # 设置浏览器窗口尺寸
         storage_state=storage_state,  # 如果会话有效，使用会话
         ignore_https_errors=True,  # 对应 disable_security=True
     )

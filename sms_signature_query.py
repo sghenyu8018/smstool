@@ -71,7 +71,10 @@ if __name__ == '__main__':
     async def main():
         # 创建已登录的会话
         print("正在创建浏览器会话...")
-        playwright, browser, context, page = await create_playwright_session(headless=False)
+        playwright, browser, context, page = await create_playwright_session(
+            headless=False,
+            viewport={'width': 1280, 'height': 1100}  # 设置浏览器窗口尺寸为 1280×1100
+        )
         print("浏览器会话已创建")
         
         try:

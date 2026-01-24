@@ -18,6 +18,10 @@
   - 首次查询时输入PID，后续查询只需切换时间范围，无需重新输入PID
   - 提升查询效率，减少重复操作
   - 新增 `skip_pid_input` 参数，支持跳过PID输入步骤
+- **增强浏览器窗口尺寸配置**
+  - 在 `create_playwright_session` 函数中添加 `viewport` 参数，支持自定义窗口尺寸
+  - 在 `sms_signature_query.py` 中明确设置窗口尺寸为 1280×1100
+  - 保持向后兼容，默认尺寸仍为 1280×1100
 
 ### 修复
 - 修复成功率查询中 `Locator` 对象使用 `query_selector_all()` 方法的错误
