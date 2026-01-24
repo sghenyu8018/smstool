@@ -241,9 +241,27 @@ playwright, browser, context, page = await create_playwright_session(
 )
 ```
 
+### utils/sms_query_tools.py
+
+短信查询工具模块，包含所有查询核心功能。
+
+**主要函数：**
+- `query_sms_signature()` - 查询短信签名并获取工单号
+- `query_sms_success_rate()` - 查询短信签名成功率
+- `SELECTORS` - 页面元素选择器配置
+
+**使用方式：**
+```python
+# 方式1: 直接从模块导入
+from utils.sms_query_tools import query_sms_signature, query_sms_success_rate
+
+# 方式2: 从包导入（推荐）
+from utils import query_sms_signature, query_sms_success_rate
+```
+
 ### sms_signature_query.py
 
-短信签名查询模块，提供查询功能。
+短信签名查询模块，提供查询功能（主入口）。
 
 **主要函数：**
 

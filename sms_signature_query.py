@@ -2,14 +2,14 @@
 短信签名查询模块
 提供可扩展的短信签名查询功能，便于后期调整和扩展其他功能
 
-此模块作为主入口，实际的查询功能已拆分到 sms_query_tools.py
+此模块作为主入口，实际的查询功能已拆分到 utils/sms_query_tools.py
 """
 import asyncio
 from typing import Dict
 from playwright.async_api import Page
 
 # 从工具模块导入查询函数和配置
-from sms_query_tools import (
+from utils.sms_query_tools import (
     query_sms_signature,
     query_sms_success_rate,
     SELECTORS
