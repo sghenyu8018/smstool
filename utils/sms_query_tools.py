@@ -958,70 +958,167 @@ async def query_sms_success_rate(
         all_data = []
         
         try:
-            # 在SLS iframe中查找表格行
-            print("  - 在SLS iframe中查找表格数据...")
-            table_rows = await sls_frame.query_selector_all(SELECTORS['success_rate_table_row'])
+            # 在SLS iframe中查找"客户签名视角 -剔除重试过程"表格
+            print("  - 在SLS iframe中查找'客户签名视角 -剔除重试过程'表格...")
+            
+            # 方法1: 先找到包含标题的元素，然后定位到对应的表格
+            target_table_container = None
+            
+            try:
+                # 查找包含"客户签名视角 -剔除重试过程"标题的元素
+                title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
+                title_count = await title_locator.count()
+                
+                if title_count > 0:
+                    print(f"  ✓ 找到标题元素")
+                    # 找到标题后，向上查找包含表格的容器
+                    # 表格在 id="sls_chart_*" 的容器中
+                    title_element = title_locator.first
+                    
+                    # 通过JavaScript查找包含表格的父容器
+                    container_info = await title_element.evaluate('''el => {
+                        // 向上查找包含表格的容器
+                        let current = el;
+                        while (current) {
+                            // 查找包含 id="sls_chart_" 的容器
+                            if (current.id && current.id.startsWith('sls_chart_')) {
+                                return {
+                                    found: true,
+                                    id: current.id,
+                                    hasTable: current.querySelector('div.obviz-base-easyTable-body') !== null
+                                };
+                            }
+                            current = current.parentElement;
+                        }
+                        return { found: false };
+                    }''')
+                    
+                    if container_info.get('found'):
+                        print(f"  ✓ 找到表格容器: {container_info.get('id')}")
+                        # 通过ID定位表格容器
+                        target_table_container = sls_frame.locator(f'#{container_info["id"]}')
+                    else:
+                        # 如果找不到ID，尝试通过标题元素的父容器查找
+                        print("  - 尝试通过标题元素的父容器查找表格...")
+                        target_table_container = title_locator.locator('xpath=ancestor::div[contains(@id, "sls_chart_")]')
+                        container_count = await target_table_container.count()
+                        if container_count == 0:
+                            target_table_container = None
+            except Exception as e:
+                print(f"  ⚠ 查找标题元素时出错: {e}")
+            
+            # 方法2: 如果方法1失败，直接查找包含表格的容器
+            if not target_table_container:
+                print("  - 尝试直接查找包含表格的容器...")
+                try:
+                    # 查找所有包含表格的容器
+                    chart_containers = await sls_frame.query_selector_all('div[id^="sls_chart_"]')
+                    print(f"    找到 {len(chart_containers)} 个图表容器")
+                    
+                    for container in chart_containers:
+                        # 检查容器内是否有"客户签名视角"标题
+                        title_in_container = await container.query_selector('span:has-text("客户签名视角 -剔除重试过程")')
+                        if title_in_container:
+                            # 检查容器内是否有表格
+                            table_body = await container.query_selector('div.obviz-base-easyTable-body')
+                            if table_body:
+                                container_id = await container.get_attribute('id')
+                                print(f"  ✓ 找到目标表格容器: {container_id}")
+                                target_table_container = sls_frame.locator(f'#{container_id}')
+                                break
+                except Exception as e:
+                    print(f"  ⚠ 直接查找容器时出错: {e}")
+            
+            # 在目标表格容器中查找表格行
+            if target_table_container:
+                print("  - 在目标表格容器中查找数据行...")
+                # 只查找表格body中的行（排除表头）
+                table_rows = await target_table_container.locator('div.obviz-base-easyTable-body div.obviz-base-easyTable-row').all()
+            else:
+                print("  ⚠ 未找到目标表格容器，使用通用选择器查找...")
+                # 回退到原来的方法，但只查找表格body中的行
+                table_rows = await sls_frame.locator('div.obviz-base-easyTable-body div.obviz-base-easyTable-row').all()
             
             if table_rows and len(table_rows) > 0:
-                print(f"找到 {len(table_rows)} 行数据")
+                print(f"  ✓ 找到 {len(table_rows)} 行数据")
                 
                 for idx, row in enumerate(table_rows):
                     try:
-                        # 获取该行的所有单元格
-                        cells = await row.query_selector_all('div.obviz-base-easyTable-cell')
+                        # 获取该行的所有单元格（只获取数据单元格，排除表头）
+                        cells = await row.query_selector_all('div.obviz-base-easyTable-cell:not(.obviz-base-easyTable-cell-hasFilter)')
+                        
+                        # 如果上面的选择器没找到，使用通用选择器
+                        if not cells or len(cells) < 11:
+                            cells = await row.query_selector_all('div.obviz-base-easyTable-cell')
                         
                         if cells and len(cells) >= 11:
                             # 根据HTML结构，提取"客户签名视角"表格的各列数据
                             row_data = {}
                             try:
+                                # 从单元格中提取文本（通过 table-m__split-container 容器）
+                                def extract_cell_text(cell):
+                                    """从单元格中提取文本，优先从 table-m__split-container 中提取"""
+                                    try:
+                                        # 尝试从 table-m__split-container 中提取
+                                        container = await cell.query_selector('div.table-m__split-container__67f567d5 span')
+                                        if container:
+                                            return await container.inner_text()
+                                        # 如果没有找到，直接提取单元格文本
+                                        return await cell.inner_text()
+                                    except Exception:
+                                        try:
+                                            return await cell.inner_text()
+                                        except Exception:
+                                            return ''
+                                
                                 # 第1列: PID
-                                cell1_text = await cells[0].inner_text()
+                                cell1_text = await extract_cell_text(cells[0])
                                 row_data['pid'] = cell1_text.strip()
                                 
                                 # 第2列: signname（签名名称）
-                                cell2_text = await cells[1].inner_text()
+                                cell2_text = await extract_cell_text(cells[1])
                                 row_data['signname'] = cell2_text.strip()
                                 row_data['sign_name'] = row_data['signname']  # 向后兼容
                                 
                                 # 第3列: 短信类型
-                                cell3_text = await cells[2].inner_text()
+                                cell3_text = await extract_cell_text(cells[2])
                                 row_data['sms_type'] = cell3_text.strip()
                                 row_data['template_type'] = row_data['sms_type']  # 向后兼容
                                 
                                 # 第4列: 提交量
-                                cell4_text = await cells[3].inner_text() if len(cells) > 3 else ''
+                                cell4_text = await extract_cell_text(cells[3]) if len(cells) > 3 else ''
                                 row_data['submit_count'] = cell4_text.strip()
                                 row_data['total_sent'] = row_data['submit_count']  # 向后兼容
                                 
                                 # 第5列: 回执量
-                                cell5_text = await cells[4].inner_text() if len(cells) > 4 else ''
+                                cell5_text = await extract_cell_text(cells[4]) if len(cells) > 4 else ''
                                 row_data['receipt_count'] = cell5_text.strip()
                                 row_data['total_success'] = row_data['receipt_count']  # 向后兼容
                                 
                                 # 第6列: 回执成功量
-                                cell6_text = await cells[5].inner_text() if len(cells) > 5 else ''
+                                cell6_text = await extract_cell_text(cells[5]) if len(cells) > 5 else ''
                                 row_data['receipt_success_count'] = cell6_text.strip()
                                 row_data['total_failed'] = row_data['receipt_success_count']  # 向后兼容（注意：这个字段名不太准确，但保持兼容）
                                 
                                 # 第7列: 回执率
-                                cell7_text = await cells[6].inner_text() if len(cells) > 6 else ''
+                                cell7_text = await extract_cell_text(cells[6]) if len(cells) > 6 else ''
                                 row_data['receipt_rate'] = cell7_text.strip()
                                 
                                 # 第8列: 回执成功率（这是主要需要的字段）
-                                cell8_text = await cells[7].inner_text() if len(cells) > 7 else ''
+                                cell8_text = await extract_cell_text(cells[7]) if len(cells) > 7 else ''
                                 row_data['receipt_success_rate'] = cell8_text.strip()
                                 row_data['success_rate'] = row_data['receipt_success_rate']  # 向后兼容
                                 
                                 # 第9列: 十秒回执率
-                                cell9_text = await cells[8].inner_text() if len(cells) > 8 else ''
+                                cell9_text = await extract_cell_text(cells[8]) if len(cells) > 8 else ''
                                 row_data['receipt_rate_10s'] = cell9_text.strip()
                                 
                                 # 第10列: 三十秒回执率
-                                cell10_text = await cells[9].inner_text() if len(cells) > 9 else ''
+                                cell10_text = await extract_cell_text(cells[9]) if len(cells) > 9 else ''
                                 row_data['receipt_rate_30s'] = cell10_text.strip()
                                 
                                 # 第11列: 六十秒回执率
-                                cell11_text = await cells[10].inner_text() if len(cells) > 10 else ''
+                                cell11_text = await extract_cell_text(cells[10]) if len(cells) > 10 else ''
                                 row_data['receipt_rate_60s'] = cell11_text.strip()
                                 
                                 # 设置主要成功率（用于返回）
