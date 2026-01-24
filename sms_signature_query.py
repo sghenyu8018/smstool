@@ -12,6 +12,7 @@ from playwright.async_api import Page
 from utils.sms_query_tools import (
     query_sms_signature,
     query_sms_success_rate,
+    query_sms_success_rate_multi,
     SELECTORS
 )
 
@@ -90,37 +91,80 @@ if __name__ == '__main__':
             else:
                 print(f"\n[FAIL] 查询失败: {result['error']}")
             
-            # 查询短信签名成功率
-            print("\n" + "="*50)
-            print("开始查询短信签名成功率...")
-            print("="*50)
+            # 查询短信签名成功率（多时间范围）
+            print("\n" + "="*60)
+            print("开始查询短信签名成功率（多时间范围）...")
+            print("="*60)
             
-            success_rate_result = await query_sms_success_rate(page=page, time_range='30天')
+            # 查询多个时间范围的成功率
+            multi_result = await query_sms_success_rate_multi(
+                page=page,
+                time_ranges=['当天', '一周', '本周', '30天']
+            )
             
-            # 处理成功率查询结果
-            if success_rate_result['success']:
+            # 处理多时间范围查询结果
+            if multi_result['success']:
                 print(f"\n[OK] 成功率查询成功！")
-                print(f"成功率: {success_rate_result['success_rate']}%")
                 
-                # 如果有多行数据，显示所有数据
-                if success_rate_result.get('data'):
-                    matched_count = success_rate_result.get('matched_count', 0)
-                    total_count = success_rate_result.get('total_count', 0)
-                    if matched_count > 0:
-                        print(f"\n共找到 {matched_count} 条PID匹配的记录（总计 {total_count} 条）:")
+                # 按用户要求的格式输出：时间范围、签名、成功率、短信类型、提交量
+                for time_range in multi_result['time_ranges']:
+                    result = multi_result['results'][time_range]
+                    
+                    if result['success'] and result.get('data'):
+                        print(f"\n{time_range}成功率")
+                        print("-" * 60)
+                        print(f"{'签名':<20} {'成功率':<15} {'短信类型':<15} {'提交量':<15}")
+                        print("-" * 60)
+                        
+                        for row in result['data']:
+                            sign_name = row.get('signname') or row.get('sign_name', 'N/A')
+                            success_rate = row.get('receipt_success_rate') or row.get('success_rate', 'N/A')
+                            sms_type = row.get('sms_type') or row.get('template_type', 'N/A')
+                            submit_count = row.get('submit_count') or row.get('total_sent', 'N/A')
+                            
+                            # 格式化成功率显示
+                            if isinstance(success_rate, (int, float)):
+                                success_rate_str = f"{success_rate}%"
+                            else:
+                                success_rate_str = str(success_rate)
+                            
+                            print(f"{sign_name:<20} {success_rate_str:<15} {sms_type:<15} {submit_count:<15}")
                     else:
-                        print(f"\n共找到 {total_count} 条记录:")
-                    for i, row in enumerate(success_rate_result['data'], 1):
-                        sign_name = row.get('signname') or row.get('sign_name', 'N/A')
-                        success_rate = row.get('receipt_success_rate') or row.get('success_rate', 'N/A')
-                        sms_type = row.get('sms_type') or row.get('template_type', 'N/A')
-                        submit_count = row.get('submit_count') or row.get('total_sent', 'N/A')
-                        print(f"  {i}. 签名: {sign_name}, "
-                              f"成功率: {success_rate}%, "
-                              f"短信类型: {sms_type}, "
-                              f"提交量: {submit_count}")
+                        print(f"\n{time_range}成功率")
+                        print("-" * 60)
+                        if not result['success']:
+                            print(f"查询失败: {result.get('error', '未知错误')}")
+                        else:
+                            print("未找到数据")
             else:
-                print(f"\n[FAIL] 成功率查询失败: {success_rate_result['error']}")
+                print(f"\n[FAIL] 成功率查询失败: {multi_result.get('error', '未知错误')}")
+                
+                # 即使部分失败，也显示成功的结果
+                has_success = False
+                for time_range in multi_result['time_ranges']:
+                    result = multi_result['results'][time_range]
+                    if result['success'] and result.get('data'):
+                        if not has_success:
+                            print(f"\n部分查询成功，显示成功的结果：")
+                            has_success = True
+                        
+                        print(f"\n{time_range}成功率")
+                        print("-" * 60)
+                        print(f"{'签名':<20} {'成功率':<15} {'短信类型':<15} {'提交量':<15}")
+                        print("-" * 60)
+                        
+                        for row in result['data']:
+                            sign_name = row.get('signname') or row.get('sign_name', 'N/A')
+                            success_rate = row.get('receipt_success_rate') or row.get('success_rate', 'N/A')
+                            sms_type = row.get('sms_type') or row.get('template_type', 'N/A')
+                            submit_count = row.get('submit_count') or row.get('total_sent', 'N/A')
+                            
+                            if isinstance(success_rate, (int, float)):
+                                success_rate_str = f"{success_rate}%"
+                            else:
+                                success_rate_str = str(success_rate)
+                            
+                            print(f"{sign_name:<20} {success_rate_str:<15} {sms_type:<15} {submit_count:<15}")
                 
         finally:
             # 清理资源

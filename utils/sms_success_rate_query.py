@@ -901,3 +901,59 @@ async def query_sms_success_rate(
             'data': None,
             'error': error_msg
         }
+
+
+async def query_sms_success_rate_multi(
+    page: Page,
+    pid: Optional[str] = None,
+    time_ranges: Optional[list] = None,
+    timeout: int = 30000
+) -> Dict[str, any]:
+    """
+    查询多个时间范围的短信签名成功率
+    
+    Args:
+        page: Playwright Page 对象（需要已登录的会话）
+        pid: 客户PID（如果不提供，则从环境变量 SMS_PID 读取）
+        time_ranges: 时间范围列表，可选值：'当天', '本周', '一周', '上周', '30天'
+                     如果不提供，默认查询：['当天', '一周', '本周', '30天']
+        timeout: 操作超时时间（毫秒），默认30秒
+        
+    Returns:
+        Dict: 查询结果字典，包含以下字段：
+            - success (bool): 是否所有查询都成功
+            - results (Dict): 每个时间范围的查询结果
+            - pid (str): 客户PID
+            - time_ranges (list): 查询的时间范围列表
+            - error (Optional[str]): 错误信息（失败时返回）
+    """
+    logger = get_logger('sms_success_rate_multi')
+    
+    if time_ranges is None:
+        time_ranges = ['当天', '一周', '本周', '30天']
+    
+    all_results = {
+        'success': True,
+        'results': {},
+        'pid': pid,
+        'time_ranges': time_ranges,
+        'error': None
+    }
+    
+    for tr in time_ranges:
+        logger.info(f"\n{'='*60}")
+        logger.info(f"开始查询PID: {pid} 的短信签名成功率，时间范围: {tr}")
+        logger.info(f"{'='*60}")
+        
+        result = await query_sms_success_rate(page, pid, tr, timeout)
+        all_results['results'][tr] = result
+        
+        if not result['success']:
+            all_results['success'] = False
+            if all_results['error'] is None:
+                all_results['error'] = f"时间范围 {tr} 查询失败: {result.get('error', '未知错误')}"
+            logger.error(f"  ✗ 时间范围 {tr} 查询失败: {result.get('error', '未知错误')}")
+        else:
+            logger.info(f"  ✓ 时间范围 {tr} 查询成功！")
+    
+    return all_results
