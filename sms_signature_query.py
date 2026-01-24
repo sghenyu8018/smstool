@@ -113,8 +113,12 @@ if __name__ == '__main__':
                     for i, row in enumerate(success_rate_result['data'], 1):
                         sign_name = row.get('signname') or row.get('sign_name', 'N/A')
                         success_rate = row.get('receipt_success_rate') or row.get('success_rate', 'N/A')
+                        sms_type = row.get('sms_type') or row.get('template_type', 'N/A')
+                        submit_count = row.get('submit_count') or row.get('total_sent', 'N/A')
                         print(f"  {i}. 签名: {sign_name}, "
-                              f"成功率: {success_rate}%")
+                              f"成功率: {success_rate}%, "
+                              f"短信类型: {sms_type}, "
+                              f"提交量: {submit_count}")
             else:
                 print(f"\n[FAIL] 成功率查询失败: {success_rate_result['error']}")
                 
