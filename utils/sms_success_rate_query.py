@@ -611,6 +611,7 @@ async def query_sms_success_rate(
         # 8. 从表格中提取数据
         success_rate = None
         all_data = []
+        matched_data = []  # 存储PID匹配的数据
         
         try:
             # 在SLS iframe中查找"客户签名视角 -剔除重试过程"表格
@@ -767,14 +768,27 @@ async def query_sms_success_rate(
                                 cell11_text = cell_texts[10] if len(cell_texts) > 10 else ''
                                 row_data['receipt_rate_60s'] = cell11_text
                                 
-                                # 设置主要成功率（用于返回）
-                                if not success_rate or idx == 0:
-                                    success_rate = row_data['receipt_success_rate']
-                                
                                 all_data.append(row_data)
-                                print(f"  ✓ 行 {idx+1}: signname={row_data.get('signname', 'N/A')}, "
-                                      f"回执成功率={row_data.get('receipt_success_rate', 'N/A')}%, "
-                                      f"PID={row_data.get('pid', '')}, 类型={row_data.get('sms_type', '')}")
+                                
+                                # 检查PID是否匹配（如果提供了PID参数）
+                                pid_matched = False
+                                if pid:
+                                    row_pid = row_data.get('pid', '').strip()
+                                    if row_pid == pid:
+                                        pid_matched = True
+                                        matched_data.append(row_data)
+                                        print(f"  ✓ 行 {idx+1}: signname={row_data.get('signname', 'N/A')}, "
+                                              f"回执成功率={row_data.get('receipt_success_rate', 'N/A')}%, "
+                                              f"PID={row_data.get('pid', '')}, 类型={row_data.get('sms_type', '')} [PID匹配]")
+                                    else:
+                                        print(f"  - 行 {idx+1}: signname={row_data.get('signname', 'N/A')}, "
+                                              f"回执成功率={row_data.get('receipt_success_rate', 'N/A')}%, "
+                                              f"PID={row_data.get('pid', '')}, 类型={row_data.get('sms_type', '')} [PID不匹配]")
+                                else:
+                                    # 如果没有提供PID，显示所有数据
+                                    print(f"  ✓ 行 {idx+1}: signname={row_data.get('signname', 'N/A')}, "
+                                          f"回执成功率={row_data.get('receipt_success_rate', 'N/A')}%, "
+                                          f"PID={row_data.get('pid', '')}, 类型={row_data.get('sms_type', '')}")
                             except Exception as e:
                                 print(f"  ✗ 处理第 {idx+1} 行时出错: {type(e).__name__} - {str(e)}")
                                 import traceback
