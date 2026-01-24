@@ -4,14 +4,12 @@
 """
 import asyncio
 import re
-import os
-from datetime import datetime
-from pathlib import Path
 from typing import Dict, Optional
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 
 from .constants import SUCCESS_RATE_QUERY_URL, SELECTORS
 from .helpers import extract_cell_text
+from .logger import get_logger
 
 
 async def query_sms_success_rate(
