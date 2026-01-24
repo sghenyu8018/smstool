@@ -583,67 +583,92 @@ async def query_sms_success_rate(
                 for idx, row in enumerate(table_rows):
                     try:
                         # 获取该行的所有单元格（row 是 ElementHandle）
+                        # 首先尝试排除表头单元格（hasFilter类）
                         cells = await row.query_selector_all('div.obviz-base-easyTable-cell:not(.obviz-base-easyTable-cell-hasFilter)')
                         
+                        # 如果排除后单元格数量不足11个，则获取所有单元格（可能是数据行）
                         if not cells or len(cells) < 11:
                             cells = await row.query_selector_all('div.obviz-base-easyTable-cell')
                         
+                        # 确保有足够的单元格（至少11个：pid, signname, 短信类型, 提交量, 回执量, 回执成功量, 回执率, 回执成功率, 十秒回执率, 三十秒回执率, 六十秒回执率）
                         if cells and len(cells) >= 11:
                             row_data = {}
                             try:
-                                # 使用helpers中的extract_cell_text函数
-                                cell1_text = await extract_cell_text(cells[0])
-                                row_data['pid'] = cell1_text.strip()
+                                # 提取所有单元格的文本用于调试
+                                cell_texts = []
+                                for cell in cells[:11]:
+                                    cell_text = await extract_cell_text(cell)
+                                    cell_texts.append(cell_text.strip())
                                 
-                                cell2_text = await extract_cell_text(cells[1])
-                                row_data['signname'] = cell2_text.strip()
+                                # 验证是否是表头行（表头通常包含"pid", "signname"等文本）
+                                if len(cell_texts) > 0 and (cell_texts[0].lower() in ['pid', '客户pid'] or 
+                                                             cell_texts[1].lower() in ['signname', '签名']):
+                                    print(f"  跳过表头行 {idx+1}")
+                                    continue
+                                
+                                # 使用helpers中的extract_cell_text函数提取数据
+                                # 单元格索引对应关系：
+                                # 0: pid, 1: signname, 2: 短信类型, 3: 提交量, 4: 回执量, 
+                                # 5: 回执成功量, 6: 回执率, 7: 回执成功率, 8: 十秒回执率, 
+                                # 9: 三十秒回执率, 10: 六十秒回执率
+                                
+                                cell1_text = cell_texts[0] if len(cell_texts) > 0 else ''
+                                row_data['pid'] = cell1_text
+                                
+                                cell2_text = cell_texts[1] if len(cell_texts) > 1 else ''
+                                row_data['signname'] = cell2_text
                                 row_data['sign_name'] = row_data['signname']  # 向后兼容
                                 
-                                cell3_text = await extract_cell_text(cells[2])
-                                row_data['sms_type'] = cell3_text.strip()
+                                cell3_text = cell_texts[2] if len(cell_texts) > 2 else ''
+                                row_data['sms_type'] = cell3_text
                                 row_data['template_type'] = row_data['sms_type']  # 向后兼容
                                 
-                                cell4_text = await extract_cell_text(cells[3]) if len(cells) > 3 else ''
-                                row_data['submit_count'] = cell4_text.strip() if cell4_text else ''
+                                cell4_text = cell_texts[3] if len(cell_texts) > 3 else ''
+                                row_data['submit_count'] = cell4_text
                                 row_data['total_sent'] = row_data['submit_count']  # 向后兼容
                                 
-                                cell5_text = await extract_cell_text(cells[4]) if len(cells) > 4 else ''
-                                row_data['receipt_count'] = cell5_text.strip() if cell5_text else ''
+                                cell5_text = cell_texts[4] if len(cell_texts) > 4 else ''
+                                row_data['receipt_count'] = cell5_text
                                 row_data['total_success'] = row_data['receipt_count']  # 向后兼容
                                 
-                                cell6_text = await extract_cell_text(cells[5]) if len(cells) > 5 else ''
-                                row_data['receipt_success_count'] = cell6_text.strip() if cell6_text else ''
+                                cell6_text = cell_texts[5] if len(cell_texts) > 5 else ''
+                                row_data['receipt_success_count'] = cell6_text
                                 row_data['total_failed'] = row_data['receipt_success_count']  # 向后兼容
                                 
-                                cell7_text = await extract_cell_text(cells[6]) if len(cells) > 6 else ''
-                                row_data['receipt_rate'] = cell7_text.strip() if cell7_text else ''
+                                cell7_text = cell_texts[6] if len(cell_texts) > 6 else ''
+                                row_data['receipt_rate'] = cell7_text
                                 
-                                cell8_text = await extract_cell_text(cells[7]) if len(cells) > 7 else ''
-                                row_data['receipt_success_rate'] = cell8_text.strip() if cell8_text else ''
+                                # 第8个单元格（索引7）是回执成功率 - 这是用户要的关键字段
+                                cell8_text = cell_texts[7] if len(cell_texts) > 7 else ''
+                                row_data['receipt_success_rate'] = cell8_text
                                 row_data['success_rate'] = row_data['receipt_success_rate']  # 向后兼容
                                 
-                                cell9_text = await extract_cell_text(cells[8]) if len(cells) > 8 else ''
-                                row_data['receipt_rate_10s'] = cell9_text.strip() if cell9_text else ''
+                                cell9_text = cell_texts[8] if len(cell_texts) > 8 else ''
+                                row_data['receipt_rate_10s'] = cell9_text
                                 
-                                cell10_text = await extract_cell_text(cells[9]) if len(cells) > 9 else ''
-                                row_data['receipt_rate_30s'] = cell10_text.strip() if cell10_text else ''
+                                cell10_text = cell_texts[9] if len(cell_texts) > 9 else ''
+                                row_data['receipt_rate_30s'] = cell10_text
                                 
-                                cell11_text = await extract_cell_text(cells[10]) if len(cells) > 10 else ''
-                                row_data['receipt_rate_60s'] = cell11_text.strip() if cell11_text else ''
+                                cell11_text = cell_texts[10] if len(cell_texts) > 10 else ''
+                                row_data['receipt_rate_60s'] = cell11_text
                                 
                                 # 设置主要成功率（用于返回）
                                 if not success_rate or idx == 0:
                                     success_rate = row_data['receipt_success_rate']
                                 
                                 all_data.append(row_data)
-                                print(f"  行 {idx+1}: PID={row_data.get('pid', '')}, 签名={row_data.get('signname', '')}, "
-                                      f"类型={row_data.get('sms_type', '')}, 提交量={row_data.get('submit_count', '')}, "
-                                      f"回执量={row_data.get('receipt_count', '')}, 回执成功率={row_data.get('receipt_success_rate', 'N/A')}%")
+                                print(f"  ✓ 行 {idx+1}: signname={row_data.get('signname', 'N/A')}, "
+                                      f"回执成功率={row_data.get('receipt_success_rate', 'N/A')}%, "
+                                      f"PID={row_data.get('pid', '')}, 类型={row_data.get('sms_type', '')}")
                             except Exception as e:
-                                print(f"  处理第 {idx+1} 行时出错: {e}")
+                                print(f"  ✗ 处理第 {idx+1} 行时出错: {type(e).__name__} - {str(e)}")
+                                import traceback
+                                traceback.print_exc()
                                 continue
+                        else:
+                            print(f"  ⚠ 行 {idx+1}: 单元格数量不足（找到 {len(cells) if cells else 0} 个，需要至少11个）")
                     except Exception as e:
-                        print(f"  解析第 {idx+1} 行时出错: {e}")
+                        print(f"  ✗ 解析第 {idx+1} 行时出错: {type(e).__name__} - {str(e)}")
                         continue
             else:
                 # 如果没有找到表格行，尝试其他方式提取成功率
