@@ -562,17 +562,27 @@ async def query_sms_success_rate(
             # 在目标表格容器中查找表格行
             if target_table_container:
                 print("  - 在目标表格容器中查找数据行...")
-                table_rows = await target_table_container.locator('div.obviz-base-easyTable-body div.obviz-base-easyTable-row').all()
+                # 使用 query_selector_all 获取 ElementHandle 列表
+                table_rows_locator = target_table_container.locator('div.obviz-base-easyTable-body div.obviz-base-easyTable-row')
+                table_rows_count = await table_rows_locator.count()
+                table_rows = []
+                for i in range(table_rows_count):
+                    row_locator = table_rows_locator.nth(i)
+                    # 通过 evaluate 获取实际的 DOM 元素
+                    row_element = await row_locator.element_handle()
+                    if row_element:
+                        table_rows.append(row_element)
             else:
                 print("  ⚠ 未找到目标表格容器，使用通用选择器查找...")
-                table_rows = await sls_frame.locator('div.obviz-base-easyTable-body div.obviz-base-easyTable-row').all()
+                # 使用 query_selector_all 获取 ElementHandle 列表
+                table_rows = await sls_frame.query_selector_all('div.obviz-base-easyTable-body div.obviz-base-easyTable-row')
             
             if table_rows and len(table_rows) > 0:
                 print(f"  ✓ 找到 {len(table_rows)} 行数据")
                 
                 for idx, row in enumerate(table_rows):
                     try:
-                        # 获取该行的所有单元格
+                        # 获取该行的所有单元格（row 是 ElementHandle）
                         cells = await row.query_selector_all('div.obviz-base-easyTable-cell:not(.obviz-base-easyTable-cell-hasFilter)')
                         
                         if not cells or len(cells) < 11:

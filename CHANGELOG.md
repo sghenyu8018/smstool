@@ -7,6 +7,11 @@
 
 ## [未发布]
 
+### 修复
+- 修复成功率查询中 `Locator` 对象使用 `query_selector_all()` 方法的错误
+  - 将 `locator().all()` 返回的 `Locator` 对象转换为 `ElementHandle` 对象
+  - 确保表格行和单元格提取使用正确的 API
+
 ### 新增
 - 添加短信签名成功率查询功能 (`query_sms_success_rate`)
   - 支持查询指定PID的短信签名成功率
