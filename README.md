@@ -241,7 +241,26 @@ playwright, browser, context, page = await create_playwright_session(
 )
 ```
 
-### utils/sms_query_tools.py
+### utils/ 目录（工具模块）
+
+工具模块已拆分为多个子模块，提高代码可读性和可维护性：
+
+#### utils/constants.py
+- 页面URL配置（`SIGN_QUERY_URL`, `SUCCESS_RATE_QUERY_URL`）
+- 页面元素选择器配置（`SELECTORS`）
+
+#### utils/helpers.py
+- `extract_work_order_id()`: 从文本中提取工单号
+- `parse_datetime()`: 解析日期时间字符串
+- `extract_cell_text()`: 从表格单元格中提取文本
+
+#### utils/sms_signature_query.py
+- `query_sms_signature()`: 短信签名查询功能
+
+#### utils/sms_success_rate_query.py
+- `query_sms_success_rate()`: 短信签名成功率查询功能
+
+#### utils/sms_query_tools.py（向后兼容层）
 
 短信查询工具模块，包含所有查询核心功能。
 
@@ -438,7 +457,7 @@ MY_FEATURE_TIMEOUT = int(os.getenv('MY_FEATURE_TIMEOUT', 30000))
 
 ### Q3: 如何更新页面元素选择器？
 
-**A:** 在 `sms_signature_query.py` 文件顶部的 `SELECTORS` 字典中修改：
+**A:** 在 `utils/constants.py` 文件中的 `SELECTORS` 字典中修改：
 
 ```python
 SELECTORS = {
@@ -473,13 +492,22 @@ playwright, browser, context, page = await create_playwright_session(headless=Tr
 ```
 smstool/
 ├── login_module.py          # 登录模块
-├── sms_signature_query.py   # 短信签名查询模块
+├── sms_signature_query.py   # 短信签名查询模块（主入口）
 ├── config.py                # 配置管理模块
 ├── session_manager.py       # 会话管理模块
+├── utils/                   # 工具模块目录
+│   ├── __init__.py         # 包初始化文件
+│   ├── constants.py        # 常量和选择器配置
+│   ├── helpers.py          # 辅助函数
+│   ├── sms_signature_query.py  # 签名查询功能
+│   ├── sms_success_rate_query.py  # 成功率查询功能
+│   └── sms_query_tools.py  # 向后兼容层
 ├── requirements.txt         # Python 依赖
 ├── README.md                # 项目文档
 ├── CHANGELOG.md             # 更新日志
 ├── .env.example             # 环境变量示例
+├── .gitignore              # Git忽略配置
+├── .cursorrules            # Cursor IDE规则
 ├── session/                 # 会话文件目录
 └── logs/                    # 日志文件目录
 ```

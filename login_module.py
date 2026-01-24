@@ -150,7 +150,7 @@ async def create_playwright_session(
     
     # 创建浏览器上下文（使用全屏尺寸）
     context = await browser.new_context(
-        viewport={'width': 1920, 'height': 1080},  # 使用全屏尺寸
+        viewport={'width': 1280, 'height': 1100},  # 设置浏览器窗口尺寸
         storage_state=storage_state,  # 如果会话有效，使用会话
         ignore_https_errors=True,  # 对应 disable_security=True
     )
