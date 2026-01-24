@@ -95,7 +95,7 @@ if __name__ == '__main__':
             print("开始查询短信签名成功率...")
             print("="*50)
             
-            success_rate_result = await query_sms_success_rate(page=page)
+            success_rate_result = await query_sms_success_rate(page=page, time_range='30天')
             
             # 处理成功率查询结果
             if success_rate_result['success']:

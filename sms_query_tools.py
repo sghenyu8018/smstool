@@ -298,6 +298,7 @@ async def query_sms_signature(
 async def query_sms_success_rate(
     page: Page,
     pid: Optional[str] = None,
+    time_range: str = '30天',
     timeout: int = 30000
 ) -> Dict[str, any]:
     """
@@ -306,20 +307,35 @@ async def query_sms_success_rate(
     Args:
         page: Playwright Page 对象（需要已登录的会话）
         pid: 客户PID（如果不提供，则从环境变量 SMS_PID 读取）
+        time_range: 时间范围，可选值：'当天', '本周', '一周', '上周', '30天'，默认为'30天'
         timeout: 操作超时时间（毫秒），默认30秒
         
     Returns:
         Dict: 查询结果字典，包含以下字段：
             - success (bool): 是否查询成功
-            - success_rate (Optional[str]): 成功率（成功时返回）
+            - success_rate (Optional[str]): 回执成功率（成功时返回，取第一条数据）
             - pid (Optional[str]): 客户PID
-            - data (Optional[List]): 所有数据行（如果有多行）
+            - time_range (str): 查询的时间范围
+            - data (Optional[List]): 所有数据行，每行包含：
+                - pid: 客户PID
+                - signname: 签名名称
+                - sms_type: 短信类型
+                - submit_count: 提交量
+                - receipt_count: 回执量
+                - receipt_success_count: 回执成功量
+                - receipt_rate: 回执率
+                - receipt_success_rate: 回执成功率
+                - receipt_rate_10s: 十秒回执率
+                - receipt_rate_30s: 三十秒回执率
+                - receipt_rate_60s: 六十秒回执率
             - error (Optional[str]): 错误信息（失败时返回）
             
     # Example:
-    #     >>> result = await query_sms_success_rate(page=page, pid="100000103722927")
+    #     >>> result = await query_sms_success_rate(page=page, pid="100000103722927", time_range="30天")
     #     >>> if result['success']:
-    #     ...     print(f"成功率：{result['success_rate']}%")
+    #     ...     print(f"回执成功率：{result['success_rate']}%")
+    #     ...     for row in result['data']:
+    #     ...         print(f"签名：{row['signname']}, 类型：{row['sms_type']}, 提交量：{row['submit_count']}")
     #     ... else:
     #     ...     print(f"查询失败：{result['error']}")
     """
@@ -753,10 +769,19 @@ async def query_sms_success_rate(
         
         print(f"{'='*60}\n")
         
-        # 5. 选择时间范围（30天）
+        # 5. 选择时间范围
         print(f"\n{'='*60}")
-        print(f"步骤5: 选择时间范围（30天）")
+        print(f"步骤5: 选择时间范围（{time_range}）")
         print(f"{'='*60}")
+        
+        # 时间范围映射（用于查找选项）
+        time_range_map = {
+            '当天': ['当天', '今天', '今日'],
+            '本周': ['本周', '本周（相对）'],
+            '一周': ['一周', '7天', '7天（相对）'],
+            '上周': ['上周', '上周（相对）'],
+            '30天': ['30天', '30天（相对）']
+        }
         
         try:
             # 在SLS iframe中查找时间选择器
@@ -779,38 +804,46 @@ async def query_sms_success_rate(
                 await time_selector_locator.click()
                 await asyncio.sleep(1)  # 等待弹窗出现
                 
-                # 查找并点击"30天"选项
-                print("  - 在SLS iframe中查找'30天'选项...")
+                # 查找并点击时间范围选项
+                print(f"  - 在SLS iframe中查找'{time_range}'选项...")
                 time_option_locator = None
                 
-                try:
-                    option_locator = sls_frame.locator('li.obviz-base-li-block:has-text("30天")').first
-                    if await option_locator.count() > 0:
-                        is_visible = await option_locator.is_visible()
-                        if is_visible:
-                            time_option_locator = option_locator
-                            print(f"  ✓ 在SLS iframe中找到'30天'选项")
-                except Exception:
-                    pass
+                # 获取该时间范围的所有可能文本
+                search_texts = time_range_map.get(time_range, [time_range])
                 
-                # 如果找不到，尝试通过文本查找
-                if not time_option_locator:
+                for search_text in search_texts:
                     try:
-                        option_locator = sls_frame.locator('text=30天').first
+                        # 方式1: 使用has-text查找
+                        option_locator = sls_frame.locator(f'li.obviz-base-li-block:has-text("{search_text}")').first
                         if await option_locator.count() > 0:
-                            time_option_locator = option_locator
-                            print(f"  ✓ 在SLS iframe中通过文本找到'30天'选项")
+                            is_visible = await option_locator.is_visible()
+                            if is_visible:
+                                time_option_locator = option_locator
+                                print(f"  ✓ 在SLS iframe中找到'{search_text}'选项")
+                                break
                     except Exception:
                         pass
                 
+                # 如果找不到，尝试通过文本查找
+                if not time_option_locator:
+                    for search_text in search_texts:
+                        try:
+                            option_locator = sls_frame.locator(f'text={search_text}').first
+                            if await option_locator.count() > 0:
+                                time_option_locator = option_locator
+                                print(f"  ✓ 在SLS iframe中通过文本找到'{search_text}'选项")
+                                break
+                        except Exception:
+                            pass
+                
                 if time_option_locator:
-                    # 点击30天选项
-                    print("  - 点击'30天'选项...")
+                    # 点击时间范围选项
+                    print(f"  - 点击'{time_range}'选项...")
                     await time_option_locator.click()
                     await asyncio.sleep(2)  # 等待页面加载
-                    print("  ✓ 已选择时间范围：30天")
+                    print(f"  ✓ 已选择时间范围：{time_range}")
                 else:
-                    print("  ✗ 未找到'30天'选项")
+                    print(f"  ✗ 未找到'{time_range}'选项，尝试的文本：{search_texts}")
             else:
                 print("  ✗ 未找到时间选择器")
         except Exception as e:
@@ -938,51 +971,67 @@ async def query_sms_success_rate(
                         cells = await row.query_selector_all('div.obviz-base-easyTable-cell')
                         
                         if cells and len(cells) >= 11:
-                            # 根据HTML结构，提取各列数据
+                            # 根据HTML结构，提取"客户签名视角"表格的各列数据
                             row_data = {}
                             try:
                                 # 第1列: PID
                                 cell1_text = await cells[0].inner_text()
                                 row_data['pid'] = cell1_text.strip()
                                 
-                                # 第2列: 签名名称
+                                # 第2列: signname（签名名称）
                                 cell2_text = await cells[1].inner_text()
-                                row_data['sign_name'] = cell2_text.strip()
+                                row_data['signname'] = cell2_text.strip()
+                                row_data['sign_name'] = row_data['signname']  # 向后兼容
                                 
-                                # 第3列: 模板类型
+                                # 第3列: 短信类型
                                 cell3_text = await cells[2].inner_text()
-                                row_data['template_type'] = cell3_text.strip()
+                                row_data['sms_type'] = cell3_text.strip()
+                                row_data['template_type'] = row_data['sms_type']  # 向后兼容
                                 
-                                # 第4-11列: 各种统计数据
-                                row_data['total_sent'] = await cells[3].inner_text() if len(cells) > 3 else ''
-                                row_data['total_success'] = await cells[4].inner_text() if len(cells) > 4 else ''
-                                row_data['total_failed'] = await cells[5].inner_text() if len(cells) > 5 else ''
+                                # 第4列: 提交量
+                                cell4_text = await cells[3].inner_text() if len(cells) > 3 else ''
+                                row_data['submit_count'] = cell4_text.strip()
+                                row_data['total_sent'] = row_data['submit_count']  # 向后兼容
                                 
-                                # 提取成功率（使用指定的选择器查找）
-                                success_rate_cells = await row.query_selector_all(SELECTORS['success_rate_value'])
-                                if success_rate_cells:
-                                    for cell in success_rate_cells:
-                                        cell_text = await cell.inner_text()
-                                        cell_text = cell_text.strip()
-                                        if re.match(r'^\d+\.?\d*$', cell_text):
-                                            if not row_data.get('success_rate'):
-                                                row_data['success_rate'] = cell_text
-                                                if not success_rate or idx == 0:
-                                                    success_rate = cell_text
-                                            break
+                                # 第5列: 回执量
+                                cell5_text = await cells[4].inner_text() if len(cells) > 4 else ''
+                                row_data['receipt_count'] = cell5_text.strip()
+                                row_data['total_success'] = row_data['receipt_count']  # 向后兼容
                                 
-                                # 如果上面的方法没找到，使用原来的方法
-                                if not row_data.get('success_rate'):
-                                    for i in range(6, min(11, len(cells))):
-                                        cell_text = await cells[i].inner_text()
-                                        if re.match(r'^\d+\.?\d*$', cell_text.strip()):
-                                            if not success_rate or idx == 0:
-                                                success_rate = cell_text.strip()
-                                            row_data['success_rate'] = cell_text.strip()
-                                            break
+                                # 第6列: 回执成功量
+                                cell6_text = await cells[5].inner_text() if len(cells) > 5 else ''
+                                row_data['receipt_success_count'] = cell6_text.strip()
+                                row_data['total_failed'] = row_data['receipt_success_count']  # 向后兼容（注意：这个字段名不太准确，但保持兼容）
+                                
+                                # 第7列: 回执率
+                                cell7_text = await cells[6].inner_text() if len(cells) > 6 else ''
+                                row_data['receipt_rate'] = cell7_text.strip()
+                                
+                                # 第8列: 回执成功率（这是主要需要的字段）
+                                cell8_text = await cells[7].inner_text() if len(cells) > 7 else ''
+                                row_data['receipt_success_rate'] = cell8_text.strip()
+                                row_data['success_rate'] = row_data['receipt_success_rate']  # 向后兼容
+                                
+                                # 第9列: 十秒回执率
+                                cell9_text = await cells[8].inner_text() if len(cells) > 8 else ''
+                                row_data['receipt_rate_10s'] = cell9_text.strip()
+                                
+                                # 第10列: 三十秒回执率
+                                cell10_text = await cells[9].inner_text() if len(cells) > 9 else ''
+                                row_data['receipt_rate_30s'] = cell10_text.strip()
+                                
+                                # 第11列: 六十秒回执率
+                                cell11_text = await cells[10].inner_text() if len(cells) > 10 else ''
+                                row_data['receipt_rate_60s'] = cell11_text.strip()
+                                
+                                # 设置主要成功率（用于返回）
+                                if not success_rate or idx == 0:
+                                    success_rate = row_data['receipt_success_rate']
                                 
                                 all_data.append(row_data)
-                                print(f"  行 {idx+1}: PID={row_data.get('pid', '')}, 签名={row_data.get('sign_name', '')}, 成功率={row_data.get('success_rate', 'N/A')}%")
+                                print(f"  行 {idx+1}: PID={row_data.get('pid', '')}, 签名={row_data.get('signname', '')}, "
+                                      f"类型={row_data.get('sms_type', '')}, 提交量={row_data.get('submit_count', '')}, "
+                                      f"回执量={row_data.get('receipt_count', '')}, 回执成功率={row_data.get('receipt_success_rate', 'N/A')}%")
                             except Exception as e:
                                 print(f"  处理第 {idx+1} 行时出错: {e}")
                                 continue
@@ -1009,8 +1058,9 @@ async def query_sms_success_rate(
         if success_rate or all_data:
             result = {
                 'success': True,
-                'success_rate': success_rate or (all_data[0].get('success_rate') if all_data else None),
+                'success_rate': success_rate or (all_data[0].get('receipt_success_rate') if all_data else None),
                 'pid': pid,
+                'time_range': time_range,
                 'data': all_data if all_data else None,
                 'error': None
             }
@@ -1024,6 +1074,7 @@ async def query_sms_success_rate(
                 'success': False,
                 'success_rate': None,
                 'pid': pid,
+                'time_range': time_range,
                 'data': None,
                 'error': '未能从页面中提取到成功率数据，请检查查询条件和页面结构'
             }
@@ -1035,6 +1086,7 @@ async def query_sms_success_rate(
             'success': False,
             'success_rate': None,
             'pid': pid,
+            'time_range': time_range,
             'data': None,
             'error': error_msg
         }
@@ -1045,6 +1097,7 @@ async def query_sms_success_rate(
             'success': False,
             'success_rate': None,
             'pid': pid,
+            'time_range': time_range,
             'data': None,
             'error': error_msg
         }

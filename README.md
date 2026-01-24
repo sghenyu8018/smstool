@@ -8,7 +8,7 @@
 
 - ✅ **自动登录**：支持 SSO 自动登录，会话自动保存和恢复
 - ✅ **短信签名查询**：根据客户 PID 和签名名称查询工单号
-- ✅ **成功率查询**：查询短信签名的成功率统计数据
+- ✅ **成功率查询**：查询短信签名的成功率统计数据，支持多个时间范围（当天、本周、一周、上周、30天）
 - ✅ **多行数据支持**：自动识别多行工单号，选择最新的数据
 - ✅ **会话管理**：自动管理浏览器会话，支持24小时有效期验证
 - ✅ **可扩展设计**：模块化架构，便于添加新的查询功能
@@ -186,20 +186,28 @@ async def query_success_rate():
     playwright, browser, context, page = await create_playwright_session(headless=False)
     
     try:
-        # 执行成功率查询（如果不传参数，会从环境变量读取PID）
-        result = await query_sms_success_rate(page=page, pid="100000103722927")
+        # 执行成功率查询（支持多个时间范围：当天、本周、一周、上周、30天）
+        result = await query_sms_success_rate(
+            page=page, 
+            pid="100000103722927",
+            time_range="30天"  # 可选：'当天', '本周', '一周', '上周', '30天'
+        )
         
         # 处理结果
         if result['success']:
             print(f"✓ 查询成功！")
-            print(f"成功率: {result['success_rate']}%")
+            print(f"时间范围: {result['time_range']}")
+            print(f"回执成功率: {result['success_rate']}%")
             
-            # 如果有多行数据，显示所有数据
+            # 如果有多行数据，显示所有数据（包含"客户签名视角"表格的完整信息）
             if result.get('data'):
                 print(f"\n共找到 {result.get('total_count', 0)} 条记录:")
                 for i, row in enumerate(result['data'], 1):
-                    print(f"  {i}. 签名: {row.get('sign_name', 'N/A')}, "
-                          f"成功率: {row.get('success_rate', 'N/A')}%")
+                    print(f"  {i}. 签名: {row.get('signname', 'N/A')}, "
+                          f"类型: {row.get('sms_type', 'N/A')}, "
+                          f"提交量: {row.get('submit_count', 'N/A')}, "
+                          f"回执量: {row.get('receipt_count', 'N/A')}, "
+                          f"回执成功率: {row.get('receipt_success_rate', 'N/A')}%")
         else:
             print(f"✗ 查询失败: {result['error']}")
             
@@ -255,16 +263,27 @@ playwright, browser, context, page = await create_playwright_session(
    }
    ```
 
-2. **`query_sms_success_rate(page, pid)`** - 查询短信签名成功率
-   - 自动选择时间范围（本周）
-   - 返回详细的统计数据
+2. **`query_sms_success_rate(page, pid, time_range)`** - 查询短信签名成功率
+   - 支持多个时间范围：'当天', '本周', '一周', '上周', '30天'（默认：'30天'）
+   - 完整提取"客户签名视角"表格数据，包括：
+     - signname（签名名称）
+     - sms_type（短信类型）
+     - submit_count（提交量）
+     - receipt_count（回执量）
+     - receipt_success_rate（回执成功率）
+     - receipt_rate（回执率）
+     - receipt_rate_10s（十秒回执率）
+     - receipt_rate_30s（三十秒回执率）
+     - receipt_rate_60s（六十秒回执率）
+   - 可从环境变量读取PID
 
    **返回值：**
    ```python
    {
        'success': bool,           # 是否查询成功
-       'success_rate': str,       # 成功率（百分比）
+       'success_rate': str,       # 回执成功率（百分比）
        'pid': str,                # 客户PID
+       'time_range': str,         # 查询的时间范围
        'data': List[Dict],        # 所有数据行（包含详细信息）
        'total_count': int,        # 数据行总数
        'error': str               # 错误信息（失败时）
