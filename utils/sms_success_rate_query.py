@@ -12,11 +12,343 @@ from .helpers import extract_cell_text
 from .logger import get_logger
 
 
+async def _select_time_range_only(
+    page: Page,
+    pid: Optional[str],
+    time_range: str,
+    timeout: int
+) -> Dict[str, any]:
+    """
+    只切换时间范围，不重新输入PID（内部函数）
+    
+    Args:
+        page: Playwright Page 对象
+        pid: 客户PID（用于日志和结果）
+        time_range: 时间范围
+        timeout: 操作超时时间
+        
+    Returns:
+        Dict: 查询结果字典
+    """
+    logger = get_logger('sms_success_rate')
+    
+    try:
+        # 获取SLS iframe（应该已经存在）
+        print(f"\n{'='*60}")
+        print(f"切换时间范围（{time_range}），PID已输入，无需重新输入")
+        print(f"{'='*60}")
+        
+        # 查找SLS iframe
+        iframes = page.frames
+        sls_frame = None
+        for frame in iframes:
+            if 'sls4service.console.aliyun.com' in frame.url and 'dashboard' in frame.url:
+                sls_frame = frame
+                break
+        
+        if not sls_frame:
+            return {
+                'success': False,
+                'success_rate': None,
+                'pid': pid,
+                'time_range': time_range,
+                'data': None,
+                'error': '未找到SLS iframe，请先执行完整的查询流程'
+            }
+        
+        # 选择时间范围（复用原有逻辑）
+        print(f"\n步骤: 选择时间范围（{time_range}）")
+        
+        time_range_map = {
+            '当天': ['当天', '今天', '今日'],
+            '本周': ['本周', '本周（相对）'],
+            '一周': ['一周', '7天', '7天（相对）'],
+            '上周': ['上周', '上周（相对）'],
+            '30天': ['30天', '30天（相对）']
+        }
+        
+        try:
+            time_selector_locator = None
+            print("  - 在SLS iframe中查找时间选择器...")
+            try:
+                time_selector = sls_frame.locator('div[data-spm-click*="time"]').first
+                if await time_selector.count() > 0:
+                    is_visible = await time_selector.is_visible()
+                    if is_visible:
+                        time_selector_locator = time_selector
+                        print(f"  ✓ 在SLS iframe中找到时间选择器")
+            except Exception as e:
+                print(f"  ✗ 在SLS iframe中查找时间选择器失败: {e}")
+            
+            if time_selector_locator:
+                print("  - 点击时间选择器按钮...")
+                await time_selector_locator.click()
+                await asyncio.sleep(1)
+                
+                print(f"  - 在SLS iframe中查找'{time_range}'选项...")
+                time_option_locator = None
+                search_texts = time_range_map.get(time_range, [time_range])
+                
+                for search_text in search_texts:
+                    try:
+                        option_locator = sls_frame.locator(f'li.obviz-base-li-block:has-text("{search_text}")').first
+                        if await option_locator.count() > 0:
+                            is_visible = await option_locator.is_visible()
+                            if is_visible:
+                                time_option_locator = option_locator
+                                print(f"  ✓ 在SLS iframe中找到'{search_text}'选项")
+                                break
+                    except Exception:
+                        pass
+                
+                if not time_option_locator:
+                    for search_text in search_texts:
+                        try:
+                            option_locator = sls_frame.locator(f'text={search_text}').first
+                            if await option_locator.count() > 0:
+                                time_option_locator = option_locator
+                                print(f"  ✓ 在SLS iframe中通过文本找到'{search_text}'选项")
+                                break
+                        except Exception:
+                            pass
+                
+                if time_option_locator:
+                    print(f"  - 点击'{time_range}'选项...")
+                    await time_option_locator.click()
+                    await asyncio.sleep(2)
+                    print(f"  ✓ 已选择时间范围：{time_range}")
+                else:
+                    print(f"  ✗ 未找到'{time_range}'选项")
+                    return {
+                        'success': False,
+                        'success_rate': None,
+                        'pid': pid,
+                        'time_range': time_range,
+                        'data': None,
+                        'error': f"未找到时间范围选项：{time_range}"
+                    }
+            else:
+                print("  ✗ 未找到时间选择器")
+                return {
+                    'success': False,
+                    'success_rate': None,
+                    'pid': pid,
+                    'time_range': time_range,
+                    'data': None,
+                    'error': '未找到时间选择器'
+                }
+        except Exception as e:
+            print(f"  ✗ 选择时间范围时出错: {type(e).__name__} - {str(e)}")
+            return {
+                'success': False,
+                'success_rate': None,
+                'pid': pid,
+                'time_range': time_range,
+                'data': None,
+                'error': f"选择时间范围时出错: {str(e)}"
+            }
+        
+        # 等待数据加载并提取数据（复用原有逻辑）
+        print(f"\n步骤: 等待数据加载并提取成功率")
+        
+        # 等待表格数据加载
+        max_wait_retries = 20
+        retry_count = 0
+        table_ready = False
+        target_table_container = None
+        
+        while retry_count < max_wait_retries and not table_ready:
+            try:
+                title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
+                title_count = await title_locator.count()
+                
+                if title_count > 0:
+                    title_element = title_locator.first
+                    container_info = await title_element.evaluate('''el => {
+                        let current = el;
+                        while (current) {
+                            if (current.id && current.id.startsWith('sls_chart_')) {
+                                const tableBody = current.querySelector('div.obviz-base-easyTable-body');
+                                const rows = tableBody ? tableBody.querySelectorAll('div.obviz-base-easyTable-row') : [];
+                                return {
+                                    found: true,
+                                    id: current.id,
+                                    hasTable: tableBody !== null,
+                                    rowCount: rows.length
+                                };
+                            }
+                            current = current.parentElement;
+                        }
+                        return { found: false };
+                    }''')
+                    
+                    if container_info.get('found'):
+                        container_id = container_info.get('id')
+                        row_count = container_info.get('rowCount', 0)
+                        
+                        if row_count > 0:
+                            target_table_container = sls_frame.locator(f'#{container_id}')
+                            table_ready = True
+                            print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据")
+                            break
+            except Exception:
+                pass
+            
+            retry_count += 1
+            if not table_ready and retry_count < max_wait_retries:
+                await asyncio.sleep(1)
+        
+        if not table_ready:
+            print(f"  ⚠ 等待表格数据加载超时，尝试继续查找...")
+        
+        await asyncio.sleep(1)
+        
+        # 提取数据（复用原有逻辑，简化版）
+        success_rate = None
+        all_data = []
+        matched_data = []
+        
+        try:
+            if not target_table_container:
+                title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
+                title_count = await title_locator.count()
+                
+                if title_count > 0:
+                    title_element = title_locator.first
+                    container_info = await title_element.evaluate('''el => {
+                        let current = el;
+                        while (current) {
+                            if (current.id && current.id.startsWith('sls_chart_')) {
+                                return {
+                                    found: true,
+                                    id: current.id,
+                                    hasTable: current.querySelector('div.obviz-base-easyTable-body') !== null
+                                };
+                            }
+                            current = current.parentElement;
+                        }
+                        return { found: false };
+                    }''')
+                    
+                    if container_info.get('found'):
+                        target_table_container = sls_frame.locator(f'#{container_info["id"]}')
+            
+            if target_table_container:
+                table_body = target_table_container.locator('div.obviz-base-easyTable-body')
+                rows = table_body.locator('div.obviz-base-easyTable-row')
+                row_count = await rows.count()
+                print(f"  - 找到 {row_count} 行数据")
+                
+                for row_idx in range(row_count):
+                    row = rows.nth(row_idx)
+                    cells = row.locator('div.obviz-base-easyTable-cell')
+                    cell_count = await cells.count()
+                    
+                    if cell_count < 8:
+                        continue
+                    
+                    # 提取数据
+                    row_data = {}
+                    try:
+                        # PID (第1个单元格)
+                        pid_cell = cells.nth(0)
+                        row_pid = await extract_cell_text(pid_cell)
+                        row_data['pid'] = row_pid.strip()
+                        
+                        # Signname (第2个单元格)
+                        signname_cell = cells.nth(1)
+                        signname = await extract_cell_text(signname_cell)
+                        row_data['signname'] = signname.strip()
+                        
+                        # SMS Type (第3个单元格)
+                        sms_type_cell = cells.nth(2)
+                        sms_type = await extract_cell_text(sms_type_cell)
+                        row_data['sms_type'] = sms_type.strip()
+                        
+                        # Submit Count (第4个单元格)
+                        submit_count_cell = cells.nth(3)
+                        submit_count = await extract_cell_text(submit_count_cell)
+                        row_data['submit_count'] = submit_count.strip()
+                        
+                        # Receipt Success Rate (第8个单元格)
+                        success_rate_cell = cells.nth(7)
+                        success_rate_text = await extract_cell_text(success_rate_cell)
+                        row_data['receipt_success_rate'] = success_rate_text.strip()
+                        
+                        all_data.append(row_data)
+                        
+                        # 如果提供了PID，检查是否匹配
+                        if pid and row_pid.strip() == pid:
+                            matched_data.append(row_data)
+                    except Exception as e:
+                        print(f"  ⚠ 提取第 {row_idx + 1} 行数据时出错: {e}")
+                        continue
+                
+                if matched_data:
+                    success_rate = matched_data[0].get('receipt_success_rate', '')
+                    return_data = matched_data
+                elif all_data:
+                    success_rate = all_data[0].get('receipt_success_rate', '')
+                    return_data = all_data
+                else:
+                    return_data = []
+                    success_rate = None
+                
+                if success_rate and return_data:
+                    return {
+                        'success': True,
+                        'success_rate': success_rate,
+                        'pid': pid,
+                        'time_range': time_range,
+                        'data': return_data,
+                        'total_count': len(return_data),
+                        'matched_count': len(matched_data) if pid else len(return_data),
+                        'error': None
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'success_rate': None,
+                        'pid': pid,
+                        'time_range': time_range,
+                        'data': None,
+                        'error': '未能从页面中提取到成功率数据'
+                    }
+            else:
+                return {
+                    'success': False,
+                    'success_rate': None,
+                    'pid': pid,
+                    'time_range': time_range,
+                    'data': None,
+                    'error': '未找到目标表格容器'
+                }
+        except Exception as e:
+            return {
+                'success': False,
+                'success_rate': None,
+                'pid': pid,
+                'time_range': time_range,
+                'data': None,
+                'error': f"提取数据时出错: {str(e)}"
+            }
+    except Exception as e:
+        return {
+            'success': False,
+            'success_rate': None,
+            'pid': pid,
+            'time_range': time_range,
+            'data': None,
+            'error': f"切换时间范围时出错: {str(e)}"
+        }
+
+
 async def query_sms_success_rate(
     page: Page,
     pid: Optional[str] = None,
     time_range: str = '30天',
-    timeout: int = 30000
+    timeout: int = 30000,
+    skip_pid_input: bool = False
 ) -> Dict[str, any]:
     """
     查询短信签名成功率
@@ -80,6 +412,10 @@ async def query_sms_success_rate(
             }
     
     try:
+        # 如果跳过PID输入，说明已经输入过PID，只需要切换时间范围
+        if skip_pid_input:
+            return await _select_time_range_only(page, pid, time_range, timeout)
+        
         # 1. 导航到查询页面
         print(f"正在访问成功率查询页面: {SUCCESS_RATE_QUERY_URL}")
         await page.goto(SUCCESS_RATE_QUERY_URL, timeout=timeout, wait_until='domcontentloaded')
@@ -940,12 +1276,31 @@ async def query_sms_success_rate_multi(
         'error': None
     }
     
-    for tr in time_ranges:
+    # 第一次查询：完整流程（包括输入PID）
+    first_time_range = time_ranges[0]
+    logger.info(f"\n{'='*60}")
+    logger.info(f"开始查询PID: {pid} 的短信签名成功率，时间范围: {first_time_range}（首次查询，将输入PID）")
+    logger.info(f"{'='*60}")
+    
+    first_result = await query_sms_success_rate(page, pid, first_time_range, timeout, skip_pid_input=False)
+    all_results['results'][first_time_range] = first_result
+    
+    if not first_result['success']:
+        all_results['success'] = False
+        all_results['error'] = f"首次查询（时间范围 {first_time_range}）失败: {first_result.get('error', '未知错误')}"
+        logger.error(f"  ✗ 首次查询失败: {first_result.get('error', '未知错误')}")
+        # 如果首次查询失败，后续查询也无法进行
+        return all_results
+    else:
+        logger.info(f"  ✓ 首次查询成功！")
+    
+    # 后续查询：只切换时间范围（跳过PID输入）
+    for tr in time_ranges[1:]:
         logger.info(f"\n{'='*60}")
-        logger.info(f"开始查询PID: {pid} 的短信签名成功率，时间范围: {tr}")
+        logger.info(f"切换时间范围: {tr}（PID已输入，无需重新输入）")
         logger.info(f"{'='*60}")
         
-        result = await query_sms_success_rate(page, pid, tr, timeout)
+        result = await query_sms_success_rate(page, pid, tr, timeout, skip_pid_input=True)
         all_results['results'][tr] = result
         
         if not result['success']:

@@ -13,6 +13,12 @@
   - 新增 `query_sms_success_rate_multi` 函数，支持一次性查询多个时间范围
   - 优化输出格式，按时间范围分组显示：签名、成功率、短信类型、提交量
 
+### 改进
+- **优化多时间范围查询流程**
+  - 首次查询时输入PID，后续查询只需切换时间范围，无需重新输入PID
+  - 提升查询效率，减少重复操作
+  - 新增 `skip_pid_input` 参数，支持跳过PID输入步骤
+
 ### 修复
 - 修复成功率查询中 `Locator` 对象使用 `query_selector_all()` 方法的错误
   - 将 `locator().all()` 返回的 `Locator` 对象转换为 `ElementHandle` 对象
