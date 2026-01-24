@@ -23,8 +23,8 @@ SELECTORS = {
     # 成功率查询页面选择器
     'success_rate_menu_item': 'div.MenuItem___2wtEa:has-text("求德大盘")',  # 求德大盘菜单项
     'success_rate_pid_input': 'span.obviz-base-filterText:has-text("pid") ~ * span.obviz-base-filterInput input[autocomplete="off"]',  # PID输入框
-    'success_rate_time_selector': 'div[data-spm-click="gostr=/aliyun_log;locaid=time"]',  # 时间选择器
-    'success_rate_time_option': 'div.obviz-base-header-btn-helper:has-text("本周（相对）")',  # 本周选项
+    'success_rate_time_selector': 'div[data-spm-click*="time"]',  # 时间选择器
+    'success_rate_time_option': 'li.obviz-base-li-block:has-text("30天")',  # 30天选项
     'success_rate_table_row': 'div.obviz-base-easyTable-row',  # 成功率表格行
     'success_rate_value': 'div.table-m__split-container__67f567d5 span',  # 成功率值
 }
@@ -831,52 +831,135 @@ async def query_sms_success_rate(
         
         print(f"{'='*60}\n")
         
-        # 4. 选择时间范围（本周）
-        print("正在选择时间范围：本周")
-        try:
-            # 点击时间选择器
-            time_selector = await page.wait_for_selector(
-                SELECTORS['success_rate_time_selector'],
-                timeout=10000,
-                state='visible'
-            )
-            await time_selector.click()
-            await asyncio.sleep(1)
-            
-            # 选择"本周（相对）"
-            try:
-                # 查找包含"本周（相对）"的选项
-                time_option = await page.wait_for_selector(
-                    SELECTORS['success_rate_time_option'],
-                    timeout=5000,
-                    state='visible'
-                )
-                await time_option.click()
-                print("已选择时间范围：本周（相对）")
-                await asyncio.sleep(2)  # 等待数据加载
-            except PlaywrightTimeoutError:
-                # 如果找不到，尝试直接点击包含"本周"文本的元素
-                try:
-                    week_option = await page.locator('text=本周').first
-                    await week_option.click()
-                    await asyncio.sleep(2)
-                except Exception as e:
-                    print(f"选择时间范围时出现问题: {e}")
-        except Exception as e:
-            print(f"点击时间选择器时出现问题: {e}")
-            # 继续执行，可能时间选择器不是必需的
+        # 5. 选择时间范围（30天）
+        print(f"\n{'='*60}")
+        print(f"步骤5: 选择时间范围（30天）")
+        print(f"{'='*60}")
         
-        # 5. 等待数据加载并提取成功率
-        print("等待数据加载...")
+        try:
+            # 在所有frame中查找时间选择器
+            time_selector_locator = None
+            time_frame = None
+            
+            print("  - 在所有frame中查找时间选择器...")
+            for idx, frame in enumerate(iframes):
+                try:
+                    # 查找时间选择器按钮
+                    time_selector = frame.locator('div[data-spm-click*="time"]').first
+                    if await time_selector.count() > 0:
+                        is_visible = await time_selector.is_visible()
+                        if is_visible:
+                            time_selector_locator = time_selector
+                            time_frame = frame
+                            print(f"  ✓ 在frame {idx}中找到时间选择器")
+                            break
+                except Exception:
+                    continue
+            
+            if not time_selector_locator:
+                # 如果找不到，尝试在主页面查找
+                print("  - 在主页面查找时间选择器...")
+                try:
+                    time_selector_locator = page.locator('div[data-spm-click*="time"]').first
+                    if await time_selector_locator.count() > 0:
+                        time_frame = page
+                        print("  ✓ 在主页面找到时间选择器")
+                except Exception:
+                    pass
+            
+            if time_selector_locator:
+                # 点击时间选择器按钮
+                print("  - 点击时间选择器按钮...")
+                await time_selector_locator.click()
+                await asyncio.sleep(1)  # 等待弹窗出现
+                
+                # 查找并点击"30天"选项
+                print("  - 查找'30天'选项...")
+                time_option_locator = None
+                
+                # 在所有frame中查找30天选项
+                for idx, frame in enumerate(iframes):
+                    try:
+                        option_locator = frame.locator('li.obviz-base-li-block:has-text("30天")').first
+                        if await option_locator.count() > 0:
+                            is_visible = await option_locator.is_visible()
+                            if is_visible:
+                                time_option_locator = option_locator
+                                print(f"  ✓ 在frame {idx}中找到'30天'选项")
+                                break
+                    except Exception:
+                        continue
+                
+                # 如果找不到，尝试在主页面查找
+                if not time_option_locator:
+                    try:
+                        time_option_locator = page.locator('li.obviz-base-li-block:has-text("30天")').first
+                        if await time_option_locator.count() > 0:
+                            print("  ✓ 在主页面找到'30天'选项")
+                    except Exception:
+                        pass
+                
+                # 如果还是找不到，尝试其他选择器
+                if not time_option_locator:
+                    print("  - 尝试其他选择器查找'30天'选项...")
+                    for idx, frame in enumerate(iframes):
+                        try:
+                            # 尝试通过文本查找
+                            option_locator = frame.locator('text=30天').first
+                            if await option_locator.count() > 0:
+                                time_option_locator = option_locator
+                                print(f"  ✓ 在frame {idx}中通过文本找到'30天'选项")
+                                break
+                        except Exception:
+                            continue
+                
+                if time_option_locator:
+                    # 点击30天选项
+                    print("  - 点击'30天'选项...")
+                    await time_option_locator.click()
+                    await asyncio.sleep(2)  # 等待页面加载
+                    print("  ✓ 已选择时间范围：30天")
+                else:
+                    print("  ✗ 未找到'30天'选项")
+            else:
+                print("  ✗ 未找到时间选择器")
+        except Exception as e:
+            print(f"  ✗ 选择时间范围时出错: {type(e).__name__} - {str(e)}")
+            import traceback
+            print(f"  详细错误: {traceback.format_exc()}")
+        
+        print(f"{'='*60}\n")
+        
+        # 6. 等待数据加载并提取成功率
+        print(f"\n{'='*60}")
+        print(f"步骤6: 等待数据加载并提取成功率")
+        print(f"{'='*60}")
+        
+        print("  - 等待页面加载完成...")
         await asyncio.sleep(3)  # 等待表格数据加载
         
-        # 6. 从表格中提取数据
+        # 7. 从表格中提取数据
         success_rate = None
         all_data = []
         
         try:
-            # 查找所有表格行
-            table_rows = await page.query_selector_all(SELECTORS['success_rate_table_row'])
+            # 在所有frame中查找表格行
+            print("  - 在所有frame中查找表格数据...")
+            table_rows = []
+            
+            for idx, frame in enumerate(iframes):
+                try:
+                    rows = await frame.query_selector_all(SELECTORS['success_rate_table_row'])
+                    if rows:
+                        print(f"    - 在frame {idx}中找到 {len(rows)} 行数据")
+                        table_rows.extend(rows)
+                except Exception:
+                    continue
+            
+            # 如果frame中没找到，在主页面查找
+            if not table_rows:
+                print("  - 在主页面查找表格数据...")
+                table_rows = await page.query_selector_all(SELECTORS['success_rate_table_row'])
             
             if table_rows and len(table_rows) > 0:
                 print(f"找到 {len(table_rows)} 行数据")
@@ -907,16 +990,33 @@ async def query_sms_success_rate(
                                 row_data['total_success'] = await cells[4].inner_text() if len(cells) > 4 else ''
                                 row_data['total_failed'] = await cells[5].inner_text() if len(cells) > 5 else ''
                                 
-                                # 提取成功率（可能是第8列，包含百分比的数值）
-                                # 查找包含百分比的单元格
-                                for i in range(6, min(11, len(cells))):
-                                    cell_text = await cells[i].inner_text()
-                                    # 检查是否是百分比格式（包含小数点的数字）
-                                    if re.match(r'^\d+\.\d+$', cell_text.strip()):
-                                        if not success_rate or idx == 0:
-                                            success_rate = cell_text.strip()
-                                        row_data['success_rate'] = cell_text.strip()
-                                        break
+                                # 提取成功率（使用指定的选择器查找）
+                                # 使用 SELECTORS['success_rate_value'] 来查找成功率值
+                                success_rate_cells = await row.query_selector_all(SELECTORS['success_rate_value'])
+                                if success_rate_cells:
+                                    # 查找包含数字的单元格（成功率通常是数字格式，如 100.0, 74.35 等）
+                                    for cell in success_rate_cells:
+                                        cell_text = await cell.inner_text()
+                                        cell_text = cell_text.strip()
+                                        # 检查是否是数字格式（可能包含小数点）
+                                        if re.match(r'^\d+\.?\d*$', cell_text):
+                                            # 通常成功率在表格的特定列，这里取第一个匹配的数字作为成功率
+                                            if not row_data.get('success_rate'):
+                                                row_data['success_rate'] = cell_text
+                                                if not success_rate or idx == 0:
+                                                    success_rate = cell_text
+                                            break
+                                
+                                # 如果上面的方法没找到，使用原来的方法
+                                if not row_data.get('success_rate'):
+                                    for i in range(6, min(11, len(cells))):
+                                        cell_text = await cells[i].inner_text()
+                                        # 检查是否是百分比格式（包含小数点的数字）
+                                        if re.match(r'^\d+\.?\d*$', cell_text.strip()):
+                                            if not success_rate or idx == 0:
+                                                success_rate = cell_text.strip()
+                                            row_data['success_rate'] = cell_text.strip()
+                                            break
                                 
                                 all_data.append(row_data)
                                 print(f"  行 {idx+1}: PID={row_data.get('pid', '')}, 签名={row_data.get('sign_name', '')}, 成功率={row_data.get('success_rate', 'N/A')}%")
