@@ -4,6 +4,9 @@
 """
 import asyncio
 import re
+import os
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, Optional
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 
@@ -507,35 +510,85 @@ async def query_sms_success_rate(
         print(f"步骤6: 打印SLS iframe中的所有元素（用于判断查询条件和输出内容）")
         print(f"{'='*60}")
         
+        # 准备日志文件路径
+        log_dir = Path('logs')
+        log_dir.mkdir(exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        log_file = log_dir / f'sls_iframe_elements_{timestamp}.log'
+        
+        # 收集所有输出内容
+        log_content = []
+        log_content.append(f"{'='*60}\n")
+        log_content.append(f"步骤6: 打印SLS iframe中的所有元素（用于判断查询条件和输出内容）\n")
+        log_content.append(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        log_content.append(f"PID: {pid}\n")
+        log_content.append(f"时间范围: {time_range}\n")
+        log_content.append(f"{'='*60}\n")
+        
         try:
             print("\n【查询条件区域】")
+            log_content.append("\n【查询条件区域】\n")
+            
             filter_texts = await sls_frame.query_selector_all('span.obviz-base-filterText')
-            print(f"  - 找到 {len(filter_texts)} 个筛选条件标签:")
+            filter_info = f"  - 找到 {len(filter_texts)} 个筛选条件标签:\n"
+            print(filter_info)
+            log_content.append(filter_info)
+            
             for idx, filter_text in enumerate(filter_texts[:20], 1):
                 try:
                     text = await filter_text.inner_text()
+                    filter_item = f"    {idx}. {text}\n"
                     print(f"    {idx}. {text}")
+                    log_content.append(filter_item)
                 except Exception:
                     pass
             
             inputs = await sls_frame.query_selector_all('input')
-            print(f"\n  - 找到 {len(inputs)} 个输入框:")
+            input_info = f"\n  - 找到 {len(inputs)} 个输入框:\n"
+            print(input_info)
+            log_content.append(input_info)
+            
             for idx, inp in enumerate(inputs[:20], 1):
                 try:
                     input_type = await inp.get_attribute('type') or 'text'
                     input_value = await inp.get_attribute('value') or ''
+                    input_item = f"    {idx}. type={input_type}, value={input_value[:50]}\n"
                     print(f"    {idx}. type={input_type}, value={input_value[:50]}")
+                    log_content.append(input_item)
                 except Exception:
                     pass
             
             print("\n【输出内容区域】")
+            log_content.append("\n【输出内容区域】\n")
+            
             table_rows = await sls_frame.query_selector_all('div.obviz-base-easyTable-row, tr, div[class*="table"]')
-            print(f"  - 找到 {len(table_rows)} 个表格行/行元素")
+            row_info = f"  - 找到 {len(table_rows)} 个表格行/行元素\n"
+            print(row_info)
+            log_content.append(row_info)
             
             table_cells = await sls_frame.query_selector_all('div.obviz-base-easyTable-cell, td, div[class*="table-cell"]')
-            print(f"  - 找到 {len(table_cells)} 个表格单元格")
+            cell_info = f"  - 找到 {len(table_cells)} 个表格单元格\n"
+            print(cell_info)
+            log_content.append(cell_info)
+            
+            # 写入日志文件
+            try:
+                with open(log_file, 'w', encoding='utf-8') as f:
+                    f.writelines(log_content)
+                print(f"\n  ✓ 日志已保存到: {log_file}")
+            except Exception as log_error:
+                print(f"\n  ⚠ 保存日志文件时出错: {log_error}")
+                
         except Exception as e:
-            print(f"  ✗ 打印元素时出错: {type(e).__name__} - {str(e)}")
+            error_msg = f"  ✗ 打印元素时出错: {type(e).__name__} - {str(e)}\n"
+            print(error_msg)
+            log_content.append(error_msg)
+            # 即使出错也尝试保存已收集的日志
+            try:
+                with open(log_file, 'w', encoding='utf-8') as f:
+                    f.writelines(log_content)
+            except Exception:
+                pass
         
         print(f"\n{'='*60}")
         print(f"步骤7: 等待数据加载并提取成功率")
