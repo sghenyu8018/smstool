@@ -117,13 +117,25 @@ async def query_qualification_work_order(
                 timeout=5000,
                 state='visible'
             )
-            # 在同一行中查找pre标签
-            qualification_id_pre = await qualification_id_row.query_selector('pre[_nk="E7Xi41"]')
+            # 在同一行中查找pre标签（不依赖可变属性，直接查找pre标签）
+            qualification_id_pre = await qualification_id_row.query_selector('pre')
             if qualification_id_pre:
                 qualification_id = (await qualification_id_pre.inner_text()).strip()
                 print(f"  ✓ 获取到关联资质ID: {qualification_id}")
             else:
-                print("  ⚠ 未找到关联资质ID的pre标签")
+                # 如果pre标签不存在，尝试查找其他可能包含ID的元素（如td中的文本）
+                print("  ⚠ 未找到pre标签，尝试其他方式...")
+                # 尝试查找行中的所有td，找到包含数字的单元格
+                tds = await qualification_id_row.query_selector_all('td')
+                for td in tds:
+                    td_text = (await td.inner_text()).strip()
+                    # 如果单元格包含数字（可能是ID），使用它
+                    if td_text and td_text.isdigit():
+                        qualification_id = td_text
+                        print(f"  ✓ 从td中获取到关联资质ID: {qualification_id}")
+                        break
+                if not qualification_id:
+                    print("  ⚠ 未找到关联资质ID")
         except Exception as e:
             print(f"  ✗ 获取关联资质ID失败: {e}")
         
@@ -147,12 +159,12 @@ async def query_qualification_work_order(
         pid_input = None
         pid_selectors = [
             '#UserId',  # 最准确的选择器（根据实际页面元素）
-            'input#UserId',  # 备选：带标签的选择器
-            '#PartnerId',  # 备选：其他可能的ID
-            'input[placeholder*="PID"]',
-            'input[placeholder*="pid"]',
-            'input[placeholder*="客户PID"]',
-            'input[placeholder="请输入"]'  # 通用占位符（最后尝试）
+            # 'input#UserId',  # 备选：带标签的选择器
+            # '#PartnerId',  # 备选：其他可能的ID
+            # 'input[placeholder*="PID"]',
+            # 'input[placeholder*="pid"]',
+            # 'input[placeholder*="客户PID"]',
+            # 'input[placeholder="请输入"]'  # 通用占位符（最后尝试）
         ]
         
         for selector in pid_selectors:
@@ -267,18 +279,41 @@ async def query_qualification_work_order(
         qualification_group_id = None
         try:
             # 查找包含"资质组ID"的行
+            # 等待页面中出现包含"资质组ID"文本的表格行
+            # 解释：
+            # - 'tr.ant-table-row:has-text("资质组ID")'：选择包含"资质组ID"文本的表格行
+            # - timeout=5000：超时时间设为5秒，避免无限等待
+            # - state='visible'：要求该元素处于可见状态，确保页面已加载
+            # 等待页面中出现包含“资质组ID”的表格行，并确保该元素处于可见状态
+            # wait_for_selector 方法作用解释：
+            # - 这是 Playwright 异步页面操作中用于等待元素出现的常用方法。
+            # - 这里用于查找 table 行（tr.ant-table-row），要求该行中包含 "资质组ID" 文本。
+            # - 'state="visible"' 参数表示必须等到该行在页面上变得可见时才继续后续操作，避免出现元素还未渲染完毕时操作导致的报错。
+            # - 'timeout=5000' 参数表示最多等待5秒钟，如超时仍未找到会抛出 TimeoutError。
             qualification_group_row = await page.wait_for_selector(
-                'tr.ant-table-row:has-text("资质组ID")',
-                timeout=5000,
-                state='visible'
+                'tr.ant-table-row:has-text("资质组ID")',  # CSS选择器：查找包含"资质组ID"的行
+                timeout=5000,           # 最长等待5秒（单位为毫秒）
+                state='visible'         # 直到该元素可见为止
             )
-            # 在同一行中查找pre标签
-            qualification_group_pre = await qualification_group_row.query_selector('pre[_nk="E7Xi41"]')
+            # 在同一行中查找pre标签（不依赖可变属性，直接查找pre标签）
+            qualification_group_pre = await qualification_group_row.query_selector('pre')
             if qualification_group_pre:
                 qualification_group_id = (await qualification_group_pre.inner_text()).strip()
                 print(f"  ✓ 获取到资质组ID: {qualification_group_id}")
             else:
-                print("  ⚠ 未找到资质组ID的pre标签")
+                # 如果pre标签不存在，尝试查找其他可能包含ID的元素（如td中的文本）
+                print("  ⚠ 未找到pre标签，尝试其他方式...")
+                # 尝试查找行中的所有td，找到包含数字的单元格
+                tds = await qualification_group_row.query_selector_all('td')
+                for td in tds:
+                    td_text = (await td.inner_text()).strip()
+                    # 如果单元格包含数字（可能是ID），使用它
+                    if td_text and td_text.isdigit():
+                        qualification_group_id = td_text
+                        print(f"  ✓ 从td中获取到资质组ID: {qualification_group_id}")
+                        break
+                if not qualification_group_id:
+                    print("  ⚠ 未找到资质组ID")
         except Exception as e:
             print(f"  ✗ 获取资质组ID失败: {e}")
         
