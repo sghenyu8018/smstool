@@ -115,7 +115,7 @@ async def query_sms_signature(
                         # 获取第十列（主要工单号）
                         tenth_cell = await row.query_selector('td.dumbo-antd-0-1-18-table-cell:nth-child(10)')
                         # 获取第二列（签名名称）
-                        second_cell = await row.query_selector('td.dumbo-antd-0-1-18-table-cell:nth-child(2)')
+                        second_cell = await row.query_selector('td.dumbo-antd-0-1-18-table-cell:nth-child(5)')
                         # 获取第三列（修改时间）
                         third_cell = await row.query_selector('td.dumbo-antd-0-1-18-table-cell:nth-child(3)')
                         
