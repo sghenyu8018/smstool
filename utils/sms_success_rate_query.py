@@ -12,6 +12,160 @@ from .helpers import extract_cell_text
 from .logger import get_logger
 
 
+async def _select_time_range(
+    sls_frame,
+    time_range: str,
+    page: Optional[Page] = None,
+    need_reacquire_frame: bool = False
+) -> Tuple[bool, any, Optional[str]]:
+    """
+    选择时间范围
+    
+    Args:
+        sls_frame: SLS iframe对象
+        time_range: 时间范围（'当天', '本周', '一周', '上周', '30天'）
+        page: Playwright Page 对象（如果需要重新获取iframe引用）
+        need_reacquire_frame: 是否需要重新获取iframe引用（切换时间范围后iframe可能重新加载）
+        
+    Returns:
+        Tuple: (success, updated_sls_frame, error_message)
+            - success: 是否成功选择时间范围
+            - updated_sls_frame: 更新后的sls_frame引用
+            - error_message: 错误信息（如果失败）
+    """
+    # 时间范围映射（用于查找选项）
+    time_range_map = {
+        '当天': ['当天', '今天', '今日'],
+        '本周': ['本周', '本周（相对）'],
+        '一周': ['1周', '7天', '7天（相对）'],
+        '上周': ['上周', '上周（相对）'],
+        '30天': ['30天', '30天（相对）']
+    }
+    
+    try:
+        # 在SLS iframe中查找时间选择器
+        time_selector_locator = None
+        print("  - 在SLS iframe中查找时间选择器...")
+        try:
+            time_selector = sls_frame.locator('div[data-spm-click*="time"]').first
+            if await time_selector.count() > 0:
+                is_visible = await time_selector.is_visible()
+                if is_visible:
+                    time_selector_locator = time_selector
+                    print(f"  ✓ 在SLS iframe中找到时间选择器")
+        except Exception as e:
+            print(f"  ✗ 在SLS iframe中查找时间选择器失败: {e}")
+        
+        if not time_selector_locator:
+            return (False, sls_frame, '未找到时间选择器')
+        
+        # 点击时间选择器按钮
+        print("  - 点击时间选择器按钮...")
+        await time_selector_locator.click()
+        await asyncio.sleep(1)  # 等待弹窗出现
+        
+        # 查找并点击时间范围选项
+        print(f"  - 在SLS iframe中查找'{time_range}'选项...")
+        time_option_locator = None
+        search_texts = time_range_map.get(time_range, [time_range])
+        
+        for search_text in search_texts:
+            try:
+                # 方式1: 使用has-text查找
+                option_locator = sls_frame.locator(f'li.obviz-base-li-block:has-text("{search_text}")').first
+                if await option_locator.count() > 0:
+                    is_visible = await option_locator.is_visible()
+                    if is_visible:
+                        time_option_locator = option_locator
+                        print(f"  ✓ 在SLS iframe中找到'{search_text}'选项")
+                        break
+            except Exception:
+                pass
+        
+        # 如果方式1失败，尝试使用text=查找
+        if not time_option_locator:
+            for search_text in search_texts:
+                try:
+                    option_locator = sls_frame.locator(f'text={search_text}').first
+                    if await option_locator.count() > 0:
+                        time_option_locator = option_locator
+                        print(f"  ✓ 在SLS iframe中通过文本找到'{search_text}'选项")
+                        break
+                except Exception:
+                    pass
+        
+        if not time_option_locator:
+            return (False, sls_frame, f"未找到时间范围选项：{time_range}")
+        
+        # 点击时间范围选项
+        print(f"  - 点击'{time_range}'选项...")
+        await time_option_locator.click()
+        await asyncio.sleep(3 if need_reacquire_frame else 2)  # 切换时间范围需要更长的等待时间
+        print(f"  ✓ 已选择时间范围：{time_range}")
+        
+        # 如果需要重新获取iframe引用（切换时间范围后iframe可能重新加载）
+        if need_reacquire_frame and page:
+            print("  - 重新获取SLS iframe引用（切换时间范围后可能重新加载）...")
+            await asyncio.sleep(2)  # 等待iframe重新加载
+            
+            # 重新查找SLS iframe
+            iframes = page.frames
+            updated_sls_frame = None
+            for frame in iframes:
+                if 'sls4service.console.aliyun.com' in frame.url and 'dashboard' in frame.url:
+                    updated_sls_frame = frame
+                    break
+            
+            if not updated_sls_frame:
+                return (False, sls_frame, '切换时间范围后未找到SLS iframe，可能iframe已重新加载')
+            
+            # 等待iframe重新加载完成
+            try:
+                await updated_sls_frame.wait_for_load_state('domcontentloaded', timeout=10000)
+                print("  ✓ SLS iframe重新加载完成")
+                await asyncio.sleep(2)  # 额外等待，确保内容渲染完成
+            except Exception as e:
+                print(f"  ⚠ 等待iframe加载时出错: {e}，继续执行...")
+                await asyncio.sleep(2)
+            
+            sls_frame = updated_sls_frame
+        
+        # 滚动页面到底部，确保表格内容完全可见
+        print("  - 滚动页面到底部...")
+        try:
+            # 方法1: 滚动到页面底部
+            await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+            await asyncio.sleep(1)  # 等待滚动完成
+            
+            # 方法2: 尝试滚动到表格元素（如果存在）
+            try:
+                title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
+                if await title_locator.count() > 0:
+                    await title_locator.first.scroll_into_view_if_needed()
+                    await asyncio.sleep(1)  # 等待滚动完成
+                    print("  ✓ 已滚动到表格元素")
+            except Exception:
+                pass
+            
+            # 方法3: 再次滚动到底部，确保所有内容都可见
+            await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+            await asyncio.sleep(1)  # 等待滚动和内容渲染完成
+            
+            # 验证滚动位置
+            scroll_position = await sls_frame.evaluate('window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop')
+            max_scroll = await sls_frame.evaluate('Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight, document.documentElement.offsetHeight, document.body.clientHeight, document.documentElement.clientHeight)')
+            print(f"  ✓ 已滚动到页面底部（位置: {scroll_position}, 最大: {max_scroll}）")
+        except Exception as e:
+            print(f"  ⚠ 滚动页面时出错: {e}")
+        
+        return (True, sls_frame, None)
+        
+    except Exception as e:
+        error_msg = f"选择时间范围时出错: {str(e)}"
+        print(f"  ✗ {error_msg}")
+        return (False, sls_frame, error_msg)
+
+
 async def _wait_for_table_ready(
     page: Page,
     sls_frame,
@@ -423,154 +577,19 @@ async def _select_time_range_only(
         # 即：直接选择时间范围（跳过输入PID和按回车键的步骤）
         print(f"\n步骤: 选择时间范围（{time_range}）")
         
-        time_range_map = {
-            '当天': ['当天', '今天', '今日'],
-            '本周': ['本周', '本周（相对）'],
-            '一周': ['1周', '7天', '7天（相对）'],
-            '上周': ['上周', '上周（相对）'],
-            '30天': ['30天', '30天（相对）']
-        }
+        # 使用统一的时间范围选择函数（切换时间范围后需要重新获取iframe引用）
+        success, sls_frame, error_msg = await _select_time_range(
+            sls_frame, time_range, page=page, need_reacquire_frame=True
+        )
         
-        try:
-            time_selector_locator = None
-            print("  - 在SLS iframe中查找时间选择器...")
-            try:
-                time_selector = sls_frame.locator('div[data-spm-click*="time"]').first
-                if await time_selector.count() > 0:
-                    is_visible = await time_selector.is_visible()
-                    if is_visible:
-                        time_selector_locator = time_selector
-                        print(f"  ✓ 在SLS iframe中找到时间选择器")
-            except Exception as e:
-                print(f"  ✗ 在SLS iframe中查找时间选择器失败: {e}")
-            
-            if time_selector_locator:
-                print("  - 点击时间选择器按钮...")
-                await time_selector_locator.click()
-                await asyncio.sleep(1)
-                
-                print(f"  - 在SLS iframe中查找'{time_range}'选项...")
-                time_option_locator = None
-                search_texts = time_range_map.get(time_range, [time_range])
-                
-                for search_text in search_texts:
-                    try:
-                        option_locator = sls_frame.locator(f'li.obviz-base-li-block:has-text("{search_text}")').first
-                        if await option_locator.count() > 0:
-                            is_visible = await option_locator.is_visible()
-                            if is_visible:
-                                time_option_locator = option_locator
-                                print(f"  ✓ 在SLS iframe中找到'{search_text}'选项")
-                                break
-                    except Exception:
-                        pass
-                
-                if not time_option_locator:
-                    for search_text in search_texts:
-                        try:
-                            option_locator = sls_frame.locator(f'text={search_text}').first
-                            option_locator_all = sls_frame.locator(f'text={search_text}')
-                            print(f"option_locator: {option_locator_all}")
-                            if await option_locator.count() > 0:
-                                time_option_locator = option_locator
-                                print(f"  ✓ 在SLS iframe中通过文本找到'{search_text}'选项")
-                                break
-                        except Exception:
-                            pass
-                
-                if time_option_locator:
-                    print(f"  - 点击'{time_range}'选项...")
-                    await time_option_locator.click()
-                    await asyncio.sleep(3)  # 等待页面重新加载
-                    print(f"  ✓ 已选择时间范围：{time_range}")
-                    
-                    # 切换时间范围后，iframe可能被重新加载，需要重新获取引用
-                    print("  - 重新获取SLS iframe引用（切换时间范围后可能重新加载）...")
-                    await asyncio.sleep(2)  # 等待iframe重新加载
-                    
-                    # 重新查找SLS iframe
-                    iframes = page.frames
-                    sls_frame = None
-                    for frame in iframes:
-                        if 'sls4service.console.aliyun.com' in frame.url and 'dashboard' in frame.url:
-                            sls_frame = frame
-                            break
-                    
-                    if not sls_frame:
-                        return {
-                            'success': False,
-                            'success_rate': None,
-                            'pid': pid,
-                            'time_range': time_range,
-                            'data': None,
-                            'error': '切换时间范围后未找到SLS iframe，可能iframe已重新加载'
-                        }
-                    
-                    # 等待iframe重新加载完成
-                    try:
-                        await sls_frame.wait_for_load_state('domcontentloaded', timeout=10000)
-                        print("  ✓ SLS iframe重新加载完成")
-                        await asyncio.sleep(2)  # 额外等待，确保内容渲染完成
-                    except Exception as e:
-                        print(f"  ⚠ 等待iframe加载时出错: {e}，继续执行...")
-                        await asyncio.sleep(2)
-                    
-                    # 滚动页面到底部，确保表格内容完全可见
-                    print("  - 滚动页面到底部...")
-                    try:
-                        # 方法1: 滚动到页面底部
-                        await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                        await asyncio.sleep(1)  # 等待滚动完成
-                        
-                        # 方法2: 尝试滚动到表格元素（如果存在）
-                        try:
-                            title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
-                            if await title_locator.count() > 0:
-                                await title_locator.first.scroll_into_view_if_needed()
-                                await asyncio.sleep(1)  # 等待滚动完成
-                                print("  ✓ 已滚动到表格元素")
-                        except Exception:
-                            pass
-                        
-                        # 方法3: 再次滚动到底部，确保所有内容都可见
-                        await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                        await asyncio.sleep(1)  # 等待滚动和内容渲染完成
-                        
-                        # 验证滚动位置
-                        scroll_position = await sls_frame.evaluate('window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop')
-                        max_scroll = await sls_frame.evaluate('Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight, document.documentElement.offsetHeight, document.body.clientHeight, document.documentElement.clientHeight)')
-                        print(f"  ✓ 已滚动到页面底部（位置: {scroll_position}, 最大: {max_scroll}）")
-                    except Exception as e:
-                        print(f"  ⚠ 滚动页面时出错: {e}")
-                else:
-                    print(f"  ✗ 未找到'{time_range}'选项")
-                    return {
-                        'success': False,
-                        'success_rate': None,
-                        'pid': pid,
-                        'time_range': time_range,
-                        'data': None,
-                        'error': f"未找到时间范围选项：{time_range}"
-                    }
-            else:
-                print("  ✗ 未找到时间选择器")
-                return {
-                    'success': False,
-                    'success_rate': None,
-                    'pid': pid,
-                    'time_range': time_range,
-                    'data': None,
-                    'error': '未找到时间选择器'
-                }
-        except Exception as e:
-            print(f"  ✗ 选择时间范围时出错: {type(e).__name__} - {str(e)}")
+        if not success:
             return {
                 'success': False,
                 'success_rate': None,
                 'pid': pid,
                 'time_range': time_range,
                 'data': None,
-                'error': f"选择时间范围时出错: {str(e)}"
+                'error': error_msg or '选择时间范围失败'
             }
         
         # 等待数据加载并提取数据
@@ -1070,117 +1089,13 @@ async def query_sms_success_rate(
         print(f"步骤5: 选择时间范围（{time_range}）")
         print(f"{'='*60}")
         
-        # 时间范围映射（用于查找选项）
-        time_range_map = {
-            '当天': [ '今天'],
-            '本周': ['本周', '本周（相对）'],
-            '一周': ['1周'],
-            '上周': ['上周', '上周（相对）'],
-            '30天': ['30天', '30天（相对）']
-        }
+        # 使用统一的时间范围选择函数（首次查询不需要重新获取iframe引用）
+        success, sls_frame, error_msg = await _select_time_range(
+            sls_frame, time_range, page=page, need_reacquire_frame=False
+        )
         
-        try:
-            # 在SLS iframe中查找时间选择器
-            time_selector_locator = None
-            
-            print("  - 在SLS iframe中查找时间选择器...")
-            try:
-                time_selector = sls_frame.locator('div[data-spm-click*="time"]').first
-                if await time_selector.count() > 0:
-                    is_visible = await time_selector.is_visible()
-                    if is_visible:
-                        time_selector_locator = time_selector
-                        print(f"  ✓ 在SLS iframe中找到时间选择器")
-            except Exception as e:
-                print(f"  ✗ 在SLS iframe中查找时间选择器失败: {e}")
-            
-            if time_selector_locator:
-                # 点击时间选择器按钮
-                print("  - 点击时间选择器按钮...")
-                await time_selector_locator.click()
-                await asyncio.sleep(1)  # 等待弹窗出现
-                
-                # 查找并点击时间范围选项
-                print(f"  - 在SLS iframe中查找'{time_range}'选项...")
-                time_option_locator = None
-                
-                # 获取该时间范围的所有可能文本
-                search_texts = time_range_map.get(time_range, [time_range])
-                
-                # 在开始查找之前，先打印出所有可用的时间范围选项
-                # print(f"  - 打印所有可用的时间范围选项:")
-                # try:
-                #     all_option_nodes = await sls_frame.query_selector_all("li.obviz-base-li-block")
-                #     print(f"    - 共找到 {len(all_option_nodes)} 个时间范围选项:")
-                #     for idx, node in enumerate(all_option_nodes, 1):
-                #         try:
-                #             option_text = await node.inner_text()
-                #             # 尝试获取更多信息（如是否可见、是否有特定属性等）
-                #             is_visible = await node.is_visible()
-                #             option_class = await node.get_attribute("class")
-                #             print(f"      {idx}. {option_text} (可见: {is_visible}, class: {option_class})")
-                #         except Exception as e:
-                #             print(f"      {idx}. 读取选项信息失败: {e}")
-                # except Exception as e:
-                #     print(f"    - 获取时间范围选项列表失败: {e}")
-                
-                for search_text in search_texts:
-                    try:
-                        # 方式1: 使用has-text查找
-                        # 使用 Playwright 的 has-text 语法查找包含指定文本的时间选项
-                        # li.obviz-base-li-block: 筛选所有时间范围下拉列表项
-                        # f-string 动态插入查找的 search_text（如"当天"、"本周"等）
-                        # .first 取第一个匹配的元素，以避免多个重复项
-                        option_locator = sls_frame.locator(f'li.obviz-base-li-block:has-text("{search_text}")').first
-                        if await option_locator.count() > 0:
-                            is_visible = await option_locator.is_visible()
-                            if is_visible:
-                                time_option_locator = option_locator
-                                print(f"  ✓ 在SLS iframe中找到'{search_text}'选项")
-                                break
-                    except Exception:
-                        pass
-                
-                if time_option_locator:
-                    # 点击时间范围选项
-                    print(f"  - 点击'{time_range}'选项...")
-                    await time_option_locator.click()
-                    await asyncio.sleep(2)  # 等待页面加载
-                    print(f"  ✓ 已选择时间范围：{time_range}")
-                    
-                    # 滚动页面到底部，确保表格内容完全可见
-                    print("  - 滚动页面到底部...")
-                    try:
-                        # 方法1: 滚动到页面底部
-                        await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                        await asyncio.sleep(1)  # 等待滚动完成
-                        
-                        # 方法2: 尝试滚动到表格元素（如果存在）
-                        try:
-                            title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
-                            if await title_locator.count() > 0:
-                                await title_locator.first.scroll_into_view_if_needed()
-                                await asyncio.sleep(1)  # 等待滚动完成
-                                print("  ✓ 已滚动到表格元素")
-                        except Exception:
-                            pass
-                        
-                        # 方法3: 再次滚动到底部，确保所有内容都可见
-                        await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                        await asyncio.sleep(1)  # 等待滚动和内容渲染完成
-                        
-                        # 验证滚动位置
-                        scroll_position = await sls_frame.evaluate('window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop')
-                        max_scroll = await sls_frame.evaluate('Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight, document.documentElement.offsetHeight, document.body.clientHeight, document.documentElement.clientHeight)')
-                        print(f"  ✓ 已滚动到页面底部（位置: {scroll_position}, 最大: {max_scroll}）")
-                    except Exception as e:
-                        print(f"  ⚠ 滚动页面时出错: {e}")
-                else:
-                    print(f"  ✗ 未找到'{time_range}'选项，尝试的文本：{search_texts}")
-            else:
-                print("  ✗ 未找到时间选择器")
-        except Exception as e:
-            print(f"  ✗ 选择时间范围时出错: {type(e).__name__} - {str(e)}")
+        if not success:
+            print(f"  ✗ {error_msg}")
         
         print(f"{'='*60}\n")
         
