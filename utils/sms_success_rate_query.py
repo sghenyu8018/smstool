@@ -334,133 +334,205 @@ async def _select_time_range_only(
         
         await asyncio.sleep(1)
         
-        # 提取数据（复用原有逻辑，简化版）
+        # 提取数据（与query_sms_success_rate保持一致）
         success_rate = None
         all_data = []
         matched_data = []
         
         try:
-            # 如果还没有找到表格容器，重新获取sls_frame引用并查找
-            if not target_table_container:
-                print("  - 重新查找表格容器...")
-                # 重新获取sls_frame引用
-                iframes = page.frames
-                current_sls_frame = None
-                for frame in iframes:
-                    if 'sls4service.console.aliyun.com' in frame.url and 'dashboard' in frame.url:
-                        current_sls_frame = frame
-                        break
-                
-                if current_sls_frame:
-                    sls_frame = current_sls_frame
-                    title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
-                    title_count = await title_locator.count()
-                    
-                    if title_count > 0:
-                        print(f"  ✓ 找到标题元素")
-                        title_element = title_locator.first
-                        container_info = await title_element.evaluate('''el => {
-                            let current = el;
-                            while (current) {
-                                if (current.id && current.id.startsWith('sls_chart_')) {
-                                    return {
-                                        found: true,
-                                        id: current.id,
-                                        hasTable: current.querySelector('div.obviz-base-easyTable-body') !== null
-                                    };
-                                }
-                                current = current.parentElement;
-                            }
-                            return { found: false };
-                        }''')
-                        
-                        if container_info.get('found'):
-                            target_table_container = sls_frame.locator(f'#{container_info["id"]}')
-                            print(f"  ✓ 找到表格容器: {container_info['id']}")
-                else:
-                    print("  ✗ 未找到SLS iframe")
+            # 重新获取sls_frame引用（确保使用最新的引用）
+            iframes = page.frames
+            current_sls_frame = None
+            for frame in iframes:
+                if 'sls4service.console.aliyun.com' in frame.url and 'dashboard' in frame.url:
+                    current_sls_frame = frame
+                    break
             
-            if target_table_container:
-                table_body = target_table_container.locator('div.obviz-base-easyTable-body')
-                rows = table_body.locator('div.obviz-base-easyTable-row')
-                row_count = await rows.count()
-                print(f"  - 找到 {row_count} 行数据")
+            if not current_sls_frame:
+                return {
+                    'success': False,
+                    'success_rate': None,
+                    'pid': pid,
+                    'time_range': time_range,
+                    'data': None,
+                    'error': '未找到SLS iframe'
+                }
+            
+            sls_frame = current_sls_frame
+            
+            # 在SLS iframe中查找"客户签名视角 -剔除重试过程"表格
+            print("  - 在SLS iframe中查找'客户签名视角 -剔除重试过程'表格...")
+            
+            try:
+                # 直接使用定位器查找包含"客户签名视角 -剔除重试过程"标题的元素
+                title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
+                title_count = await title_locator.count()
                 
-                for row_idx in range(row_count):
-                    row = rows.nth(row_idx)
-                    cells = row.locator('div.obviz-base-easyTable-cell')
-                    cell_count = await cells.count()
-                    
-                    if cell_count < 8:
-                        continue
-                    
-                    # 提取数据
-                    row_data = {}
+                if title_count > 0:
+                    print(f"  ✓ 找到标题元素")
+                    # 找到标题元素后，直接使用通用选择器查找表格行
+                    print("  - 使用通用选择器查找表格行...")
+                    table_rows = await sls_frame.query_selector_all('div.obviz-base-easyTable-body div.obviz-base-easyTable-row')
+                else:
+                    print(f"  ⚠ 未找到标题元素")
+                    table_rows = []
+            except Exception as e:
+                print(f"  ⚠ 查找标题元素时出错: {e}")
+                table_rows = []
+            
+            # 如果找到了表格行，继续处理
+            if not table_rows:
+                print("  ⚠ 未找到表格行，尝试使用通用选择器查找...")
+                # 使用 query_selector_all 获取 ElementHandle 列表
+                table_rows = await sls_frame.query_selector_all('div.obviz-base-easyTable-body div.obviz-base-easyTable-row')
+            
+            if table_rows and len(table_rows) > 0:
+                print(f"  ✓ 找到 {len(table_rows)} 行数据")
+                
+                for idx, row in enumerate(table_rows):
                     try:
-                        # PID (第1个单元格)
-                        pid_cell = cells.nth(0)
-                        row_pid = await extract_cell_text(pid_cell)
-                        row_data['pid'] = row_pid.strip()
+                        # 获取该行的所有单元格（row 是 ElementHandle）
+                        # 首先尝试排除表头单元格（hasFilter类）
+                        cells = await row.query_selector_all('div.obviz-base-easyTable-cell:not(.obviz-base-easyTable-cell-hasFilter)')
                         
-                        # Signname (第2个单元格)
-                        signname_cell = cells.nth(1)
-                        signname = await extract_cell_text(signname_cell)
-                        row_data['signname'] = signname.strip()
+                        # 如果排除后单元格数量不足11个，则获取所有单元格（可能是数据行）
+                        if not cells or len(cells) < 11:
+                            cells = await row.query_selector_all('div.obviz-base-easyTable-cell')
                         
-                        # SMS Type (第3个单元格)
-                        sms_type_cell = cells.nth(2)
-                        sms_type = await extract_cell_text(sms_type_cell)
-                        row_data['sms_type'] = sms_type.strip()
-                        
-                        # Submit Count (第4个单元格)
-                        submit_count_cell = cells.nth(3)
-                        submit_count = await extract_cell_text(submit_count_cell)
-                        row_data['submit_count'] = submit_count.strip()
-                        
-                        # Receipt Success Rate (第8个单元格)
-                        success_rate_cell = cells.nth(7)
-                        success_rate_text = await extract_cell_text(success_rate_cell)
-                        row_data['receipt_success_rate'] = success_rate_text.strip()
-                        
-                        all_data.append(row_data)
-                        
-                        # 如果提供了PID，检查是否匹配
-                        if pid and row_pid.strip() == pid:
-                            matched_data.append(row_data)
+                        # 确保有足够的单元格（至少11个：pid, signname, 短信类型, 提交量, 回执量, 回执成功量, 回执率, 回执成功率, 十秒回执率, 三十秒回执率, 六十秒回执率）
+                        if cells and len(cells) >= 11:
+                            row_data = {}
+                            try:
+                                # 提取所有单元格的文本用于调试
+                                cell_texts = []
+                                for cell in cells[:11]:
+                                    cell_text = await extract_cell_text(cell)
+                                    cell_texts.append(cell_text.strip())
+                                
+                                # 验证是否是表头行（表头通常包含"pid", "signname"等文本）
+                                if len(cell_texts) > 0 and (cell_texts[0].lower() in ['pid', '客户pid'] or 
+                                                             cell_texts[1].lower() in ['signname', '签名']):
+                                    print(f"  跳过表头行 {idx+1}")
+                                    continue
+                                
+                                # 使用helpers中的extract_cell_text函数提取数据
+                                # 单元格索引对应关系：
+                                # 0: pid, 1: signname, 2: 短信类型, 3: 提交量, 4: 回执量, 
+                                # 5: 回执成功量, 6: 回执率, 7: 回执成功率, 8: 十秒回执率, 
+                                # 9: 三十秒回执率, 10: 六十秒回执率
+                                
+                                cell1_text = cell_texts[0] if len(cell_texts) > 0 else ''
+                                row_data['pid'] = cell1_text
+                                
+                                cell2_text = cell_texts[1] if len(cell_texts) > 1 else ''
+                                row_data['signname'] = cell2_text
+                                row_data['sign_name'] = row_data['signname']  # 向后兼容
+                                
+                                cell3_text = cell_texts[2] if len(cell_texts) > 2 else ''
+                                row_data['sms_type'] = cell3_text
+                                row_data['template_type'] = row_data['sms_type']  # 向后兼容
+                                
+                                cell4_text = cell_texts[3] if len(cell_texts) > 3 else ''
+                                row_data['submit_count'] = cell4_text
+                                row_data['total_sent'] = row_data['submit_count']  # 向后兼容
+                                
+                                cell5_text = cell_texts[4] if len(cell_texts) > 4 else ''
+                                row_data['receipt_count'] = cell5_text
+                                row_data['total_success'] = row_data['receipt_count']  # 向后兼容
+                                
+                                cell6_text = cell_texts[5] if len(cell_texts) > 5 else ''
+                                row_data['receipt_success_count'] = cell6_text
+                                row_data['total_failed'] = row_data['receipt_success_count']  # 向后兼容
+                                
+                                cell7_text = cell_texts[6] if len(cell_texts) > 6 else ''
+                                row_data['receipt_rate'] = cell7_text
+                                
+                                # 第8个单元格（索引7）是回执成功率 - 这是用户要的关键字段
+                                cell8_text = cell_texts[7] if len(cell_texts) > 7 else ''
+                                row_data['receipt_success_rate'] = cell8_text
+                                row_data['success_rate'] = row_data['receipt_success_rate']  # 向后兼容
+                                
+                                cell9_text = cell_texts[8] if len(cell_texts) > 8 else ''
+                                row_data['receipt_rate_10s'] = cell9_text
+                                
+                                cell10_text = cell_texts[9] if len(cell_texts) > 9 else ''
+                                row_data['receipt_rate_30s'] = cell10_text
+                                
+                                cell11_text = cell_texts[10] if len(cell_texts) > 10 else ''
+                                row_data['receipt_rate_60s'] = cell11_text
+                                
+                                all_data.append(row_data)
+                                
+                                # 检查PID是否匹配（如果提供了PID参数）
+                                pid_matched = False
+                                if pid:
+                                    row_pid = row_data.get('pid', '').strip()
+                                    if row_pid == pid:
+                                        pid_matched = True
+                                        matched_data.append(row_data)
+                                        print(f"  ✓ 行 {idx+1}: signname={row_data.get('signname', 'N/A')}, "
+                                              f"回执成功率={row_data.get('receipt_success_rate', 'N/A')}%, "
+                                              f"PID={row_data.get('pid', '')}, 类型={row_data.get('sms_type', '')} [PID匹配]")
+                                    else:
+                                        print(f"  - 行 {idx+1}: signname={row_data.get('signname', 'N/A')}, "
+                                              f"回执成功率={row_data.get('receipt_success_rate', 'N/A')}%, "
+                                              f"PID={row_data.get('pid', '')}, 类型={row_data.get('sms_type', '')} [PID不匹配]")
+                                else:
+                                    # 如果没有提供PID，显示所有数据
+                                    print(f"  ✓ 行 {idx+1}: signname={row_data.get('signname', 'N/A')}, "
+                                          f"回执成功率={row_data.get('receipt_success_rate', 'N/A')}%, "
+                                          f"PID={row_data.get('pid', '')}, 类型={row_data.get('sms_type', '')}")
+                            except Exception as e:
+                                print(f"  ✗ 处理第 {idx+1} 行时出错: {type(e).__name__} - {str(e)}")
+                                continue
+                        else:
+                            print(f"  ⚠ 行 {idx+1}: 单元格数量不足（找到 {len(cells) if cells else 0} 个，需要至少11个）")
                     except Exception as e:
-                        print(f"  ⚠ 提取第 {row_idx + 1} 行数据时出错: {e}")
+                        print(f"  ✗ 解析第 {idx+1} 行时出错: {type(e).__name__} - {str(e)}")
                         continue
-                
-                if matched_data:
-                    success_rate = matched_data[0].get('receipt_success_rate', '')
-                    return_data = matched_data
-                elif all_data:
-                    success_rate = all_data[0].get('receipt_success_rate', '')
-                    return_data = all_data
-                else:
-                    return_data = []
-                    success_rate = None
-                
-                if success_rate and return_data:
-                    return {
-                        'success': True,
-                        'success_rate': success_rate,
-                        'pid': pid,
-                        'time_range': time_range,
-                        'data': return_data,
-                        'total_count': len(return_data),
-                        'matched_count': len(matched_data) if pid else len(return_data),
-                        'error': None
-                    }
-                else:
-                    return {
-                        'success': False,
-                        'success_rate': None,
-                        'pid': pid,
-                        'time_range': time_range,
-                        'data': None,
-                        'error': '未能从页面中提取到成功率数据'
-                    }
+            else:
+                # 如果没有找到表格行，尝试其他方式提取成功率
+                try:
+                    success_rate_elements = await sls_frame.query_selector_all(SELECTORS['success_rate_value'])
+                    for element in success_rate_elements:
+                        text = await element.inner_text()
+                        if re.match(r'^\d+\.\d+$', text.strip()):
+                            success_rate = text.strip()
+                            print(f"找到成功率: {success_rate}%")
+                            break
+                except Exception as e:
+                    print(f"尝试其他方式提取成功率时出错: {e}")
+            
+            # 确定返回的数据和成功率
+            # 如果提供了PID且有匹配的数据，优先使用匹配的数据
+            if pid and matched_data:
+                print(f"\n  ✓ 找到 {len(matched_data)} 条PID匹配的数据（PID: {pid}）")
+                # 使用匹配数据的第一条作为主要成功率（或者可以计算平均值）
+                success_rate = matched_data[0].get('receipt_success_rate', '')
+                return_data = matched_data
+                print(f"  ✓ 使用PID匹配数据的成功率: {success_rate}%")
+            elif all_data:
+                # 如果没有匹配的数据，使用所有数据
+                if pid:
+                    print(f"\n  ⚠ 未找到PID匹配的数据（PID: {pid}），使用所有数据")
+                success_rate = all_data[0].get('receipt_success_rate', '') if all_data else None
+                return_data = all_data
+            else:
+                return_data = []
+                success_rate = None
+            
+            # 检查是否成功提取到成功率
+            if success_rate and return_data:
+                return {
+                    'success': True,
+                    'success_rate': success_rate,
+                    'pid': pid,
+                    'time_range': time_range,
+                    'data': return_data,
+                    'total_count': len(return_data),
+                    'matched_count': len(matched_data) if pid else len(return_data),
+                    'error': None
+                }
             else:
                 return {
                     'success': False,
@@ -468,7 +540,7 @@ async def _select_time_range_only(
                     'pid': pid,
                     'time_range': time_range,
                     'data': None,
-                    'error': '未找到目标表格容器'
+                    'error': '未能从页面中提取到成功率数据，请检查查询条件和页面结构'
                 }
         except Exception as e:
             return {
