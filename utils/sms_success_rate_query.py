@@ -123,7 +123,12 @@ async def _scroll_to_bottom(sls_frame):
         # 验证滚动位置
         scroll_position = await sls_frame.evaluate('window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop')
         max_scroll = await sls_frame.evaluate('Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight, document.documentElement.offsetHeight, document.body.clientHeight, document.documentElement.clientHeight)')
-        print(f"  ✓ 已滚动到页面底部（位置: {scroll_position}, 最大: {max_scroll}）")
+        
+        # 如果位置是0但最大滚动也很小，说明页面不需要滚动
+        if scroll_position == 0 and max_scroll <= 100:
+            print(f"  ✓ 页面内容已完全可见（无需滚动，内容高度: {max_scroll}）")
+        else:
+            print(f"  ✓ 已滚动到页面底部（位置: {scroll_position}, 最大: {max_scroll}）")
     except Exception as e:
         print(f"  ⚠ 滚动页面时出错: {e}")
 
@@ -384,8 +389,17 @@ async def _wait_for_table_ready(
                                 print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据，已找到PID（等待 {retry_count + 1} 次）")
                                 break
                             else:
-                                if retry_count % 3 == 0:
-                                    print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，表格有数据但未找到PID，继续等待...")
+                                # 如果表格有足够的数据行（超过5行），即使没有找到PID，也认为表格已加载完成
+                                # 因为PID可能不在前10行，但数据已经加载完成
+                                if row_count > 5:
+                                    target_table_container = temp_container
+                                    table_ready = True
+                                    print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据（等待 {retry_count + 1} 次）")
+                                    print(f"    - 注意：未在前10行找到PID，但表格有足够数据，认为已加载完成")
+                                    break
+                                else:
+                                    if retry_count % 3 == 0:
+                                        print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，表格有数据但未找到PID，继续等待...")
                         else:
                             # 如果没有PID，只要有数据行就认为加载完成
                             target_table_container = current_sls_frame.locator(f'#{container_id}')
@@ -563,7 +577,9 @@ async def _extract_table_data(
                             traceback.print_exc()
                             continue
                     else:
-                        print(f"  ⚠ 行 {idx+1}: 单元格数量不足（找到 {len(cells) if cells else 0} 个，需要至少11个）")
+                        # 单元格数量不足的行可能是表头行或特殊行，静默跳过
+                        # 只在调试模式下打印警告
+                        pass
                 except Exception as e:
                     print(f"  ✗ 解析第 {idx+1} 行时出错: {type(e).__name__} - {str(e)}")
                     continue
