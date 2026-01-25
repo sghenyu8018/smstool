@@ -39,6 +39,13 @@
   - 优化输出格式，按时间范围分组显示：签名、成功率、短信类型、提交量
 
 ### 改进
+- **代码重构：提取iframe相关辅助函数（第四阶段）**
+  - 创建 `_find_sls_iframe` 辅助函数，统一查找SLS iframe逻辑
+  - 创建 `_scroll_to_bottom` 辅助函数，统一滚动页面到底部逻辑
+  - 创建 `_wait_for_iframe_load` 辅助函数，统一等待iframe加载完成逻辑
+  - 消除多处重复的iframe查找和等待代码
+  - 提高代码可维护性和可读性
+  - 减少代码行数约50行（从约1170行减少到约1120行）
 - **代码重构：提取时间范围选择函数（第三阶段）**
   - 创建 `_select_time_range` 辅助函数，统一时间范围选择逻辑
   - 消除 `_select_time_range_only` 和 `query_sms_success_rate` 中约120行重复代码

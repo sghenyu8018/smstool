@@ -12,6 +12,122 @@ from .helpers import extract_cell_text
 from .logger import get_logger
 
 
+async def _find_sls_iframe(page: Page):
+    """
+    查找SLS iframe
+    
+    Args:
+        page: Playwright Page 对象
+        
+    Returns:
+        Frame: SLS iframe对象，如果未找到则返回None
+    """
+    iframes = page.frames
+    for frame in iframes:
+        if 'sls4service.console.aliyun.com' in frame.url and 'dashboard' in frame.url:
+            return frame
+    return None
+
+
+async def _wait_for_iframe_load(sls_frame, timeout: int = 15000):
+    """
+    等待SLS iframe加载完成
+    
+    Args:
+        sls_frame: SLS iframe对象
+        timeout: 超时时间（毫秒），默认15秒
+    """
+    print("  - 等待SLS iframe加载完成...")
+    try:
+        # 1. 等待DOM加载完成
+        await sls_frame.wait_for_load_state('domcontentloaded', timeout=timeout)
+        print("    ✓ DOM加载完成")
+        
+        # 2. 等待网络请求完成（load状态）
+        try:
+            await sls_frame.wait_for_load_state('load', timeout=timeout)
+            print("    ✓ 页面资源加载完成")
+        except Exception as e:
+            print(f"    ⚠ 等待load状态超时: {e}，继续执行...")
+        
+        # 3. 等待至少有一些可见元素出现（确保内容已渲染）
+        print("    - 等待关键元素出现...")
+        max_retries = 10
+        retry_count = 0
+        elements_ready = False
+        
+        while retry_count < max_retries and not elements_ready:
+            try:
+                # 检查是否有任何可见的输入框或筛选条件
+                input_count = await sls_frame.locator('input').count()
+                filter_count = await sls_frame.locator('span.obviz-base-filterText').count()
+                visible_elements = await sls_frame.locator('body *:visible').count()
+                
+                print(f"    - 尝试 {retry_count + 1}/{max_retries}: 输入框={input_count}, 筛选条件={filter_count}, 可见元素={visible_elements}")
+                
+                # 如果找到至少一些元素，认为页面已加载
+                if input_count > 0 or filter_count > 0 or visible_elements > 10:
+                    elements_ready = True
+                    print(f"    ✓ 关键元素已出现（输入框: {input_count}, 筛选条件: {filter_count}）")
+                    break
+                
+                retry_count += 1
+                if retry_count < max_retries:
+                    await asyncio.sleep(1)  # 等待1秒后重试
+                    
+            except Exception as e:
+                print(f"    ⚠ 检查元素时出错: {e}")
+                retry_count += 1
+                if retry_count < max_retries:
+                    await asyncio.sleep(1)
+        
+        if not elements_ready:
+            print("    ⚠ 等待关键元素超时，但继续尝试查找PID输入框...")
+        
+        # 4. 额外等待一段时间，确保JavaScript已执行
+        await asyncio.sleep(2)
+        print("    ✓ 等待完成，开始查找PID输入框")
+        
+    except Exception as e:
+        print(f"  ⚠ SLS iframe加载过程中出错: {type(e).__name__} - {str(e)}")
+        print("    继续尝试查找PID输入框...")
+
+
+async def _scroll_to_bottom(sls_frame):
+    """
+    滚动页面到底部，确保表格内容完全可见
+    
+    Args:
+        sls_frame: SLS iframe对象
+    """
+    print("  - 滚动页面到底部...")
+    try:
+        # 方法1: 滚动到页面底部
+        await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+        await asyncio.sleep(1)  # 等待滚动完成
+        
+        # 方法2: 尝试滚动到表格元素（如果存在）
+        try:
+            title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
+            if await title_locator.count() > 0:
+                await title_locator.first.scroll_into_view_if_needed()
+                await asyncio.sleep(1)  # 等待滚动完成
+                print("  ✓ 已滚动到表格元素")
+        except Exception:
+            pass
+        
+        # 方法3: 再次滚动到底部，确保所有内容都可见
+        await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+        await asyncio.sleep(1)  # 等待滚动和内容渲染完成
+        
+        # 验证滚动位置
+        scroll_position = await sls_frame.evaluate('window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop')
+        max_scroll = await sls_frame.evaluate('Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight, document.documentElement.offsetHeight, document.body.clientHeight, document.documentElement.clientHeight)')
+        print(f"  ✓ 已滚动到页面底部（位置: {scroll_position}, 最大: {max_scroll}）")
+    except Exception as e:
+        print(f"  ⚠ 滚动页面时出错: {e}")
+
+
 async def _select_time_range(
     sls_frame,
     time_range: str,
@@ -109,12 +225,7 @@ async def _select_time_range(
             await asyncio.sleep(2)  # 等待iframe重新加载
             
             # 重新查找SLS iframe
-            iframes = page.frames
-            updated_sls_frame = None
-            for frame in iframes:
-                if 'sls4service.console.aliyun.com' in frame.url and 'dashboard' in frame.url:
-                    updated_sls_frame = frame
-                    break
+            updated_sls_frame = await _find_sls_iframe(page)
             
             if not updated_sls_frame:
                 return (False, sls_frame, '切换时间范围后未找到SLS iframe，可能iframe已重新加载')
@@ -131,32 +242,7 @@ async def _select_time_range(
             sls_frame = updated_sls_frame
         
         # 滚动页面到底部，确保表格内容完全可见
-        print("  - 滚动页面到底部...")
-        try:
-            # 方法1: 滚动到页面底部
-            await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-            await asyncio.sleep(1)  # 等待滚动完成
-            
-            # 方法2: 尝试滚动到表格元素（如果存在）
-            try:
-                title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
-                if await title_locator.count() > 0:
-                    await title_locator.first.scroll_into_view_if_needed()
-                    await asyncio.sleep(1)  # 等待滚动完成
-                    print("  ✓ 已滚动到表格元素")
-            except Exception:
-                pass
-            
-            # 方法3: 再次滚动到底部，确保所有内容都可见
-            await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-            await asyncio.sleep(1)  # 等待滚动和内容渲染完成
-            
-            # 验证滚动位置
-            scroll_position = await sls_frame.evaluate('window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop')
-            max_scroll = await sls_frame.evaluate('Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight, document.documentElement.offsetHeight, document.body.clientHeight, document.documentElement.clientHeight)')
-            print(f"  ✓ 已滚动到页面底部（位置: {scroll_position}, 最大: {max_scroll}）")
-        except Exception as e:
-            print(f"  ⚠ 滚动页面时出错: {e}")
+        await _scroll_to_bottom(sls_frame)
         
         return (True, sls_frame, None)
         
@@ -198,12 +284,7 @@ async def _wait_for_table_ready(
         try:
             # 如果需要重新获取iframe引用（切换时间范围后iframe可能重新加载）
             if reacquire_frame:
-                iframes = page.frames
-                current_sls_frame = None
-                for frame in iframes:
-                    if 'sls4service.console.aliyun.com' in frame.url and 'dashboard' in frame.url:
-                        current_sls_frame = frame
-                        break
+                current_sls_frame = await _find_sls_iframe(page)
                 
                 if not current_sls_frame:
                     if retry_count % 3 == 0:
@@ -556,12 +637,7 @@ async def _select_time_range_only(
         print(f"{'='*60}")
         
         # 查找SLS iframe
-        iframes = page.frames
-        sls_frame = None
-        for frame in iframes:
-            if 'sls4service.console.aliyun.com' in frame.url and 'dashboard' in frame.url:
-                sls_frame = frame
-                break
+        sls_frame = await _find_sls_iframe(page)
         
         if not sls_frame:
             return {
@@ -604,12 +680,7 @@ async def _select_time_range_only(
         
         # 提取数据（使用统一的提取函数）
         # 重新获取sls_frame引用（确保使用最新的引用）
-        iframes = page.frames
-        current_sls_frame = None
-        for frame in iframes:
-            if 'sls4service.console.aliyun.com' in frame.url and 'dashboard' in frame.url:
-                current_sls_frame = frame
-                break
+        current_sls_frame = await _find_sls_iframe(page)
         
         if not current_sls_frame:
             return {
@@ -790,14 +861,16 @@ async def query_sms_success_rate(
         #     print(f"    Frame {idx}: name='{name}', url='{url_display}'")
         
         # 直接定位到Frame 3（SLS iframe）
-        sls_frame = None
         print("\n定位SLS iframe (Frame 3)...")
-        for idx, frame in enumerate(iframes):
-            if 'sls4service.console.aliyun.com' in frame.url and 'dashboard' in frame.url:
-                sls_frame = frame
-                print(f"  ✓ 找到SLS iframe: Frame {idx}")
-                print(f"    URL: {frame.url[:150]}...")
-                break
+        sls_frame = await _find_sls_iframe(page)
+        if sls_frame:
+            # 找到iframe后，打印信息
+            iframes = page.frames
+            for idx, frame in enumerate(iframes):
+                if frame == sls_frame:
+                    print(f"  ✓ 找到SLS iframe: Frame {idx}")
+                    print(f"    URL: {frame.url[:150]}...")
+                    break
         
         if not sls_frame:
             return {
@@ -808,61 +881,8 @@ async def query_sms_success_rate(
                 'error': '未找到SLS iframe (Frame 3)，请检查页面是否加载完成'
             }
         
-        # 等待SLS iframe加载完成
-        print("  - 等待SLS iframe加载完成...")
-        try:
-            # 1. 等待DOM加载完成
-            await sls_frame.wait_for_load_state('domcontentloaded', timeout=15000)
-            print("    ✓ DOM加载完成")
-            
-            # 2. 等待网络请求完成（load状态）
-            try:
-                await sls_frame.wait_for_load_state('load', timeout=15000)
-                print("    ✓ 页面资源加载完成")
-            except Exception as e:
-                print(f"    ⚠ 等待load状态超时: {e}，继续执行...")
-            
-            # 3. 等待至少有一些可见元素出现（确保内容已渲染）
-            print("    - 等待关键元素出现...")
-            max_retries = 10
-            retry_count = 0
-            elements_ready = False
-            
-            while retry_count < max_retries and not elements_ready:
-                try:
-                    # 检查是否有任何可见的输入框或筛选条件
-                    input_count = await sls_frame.locator('input').count()
-                    filter_count = await sls_frame.locator('span.obviz-base-filterText').count()
-                    visible_elements = await sls_frame.locator('body *:visible').count()
-                    
-                    print(f"    - 尝试 {retry_count + 1}/{max_retries}: 输入框={input_count}, 筛选条件={filter_count}, 可见元素={visible_elements}")
-                    
-                    # 如果找到至少一些元素，认为页面已加载
-                    if input_count > 0 or filter_count > 0 or visible_elements > 10:
-                        elements_ready = True
-                        print(f"    ✓ 关键元素已出现（输入框: {input_count}, 筛选条件: {filter_count}）")
-                        break
-                    
-                    retry_count += 1
-                    if retry_count < max_retries:
-                        await asyncio.sleep(1)  # 等待1秒后重试
-                        
-                except Exception as e:
-                    print(f"    ⚠ 检查元素时出错: {e}")
-                    retry_count += 1
-                    if retry_count < max_retries:
-                        await asyncio.sleep(1)
-            
-            if not elements_ready:
-                print("    ⚠ 等待关键元素超时，但继续尝试查找PID输入框...")
-            
-            # 4. 额外等待一段时间，确保JavaScript已执行
-            await asyncio.sleep(2)
-            print("    ✓ 等待完成，开始查找PID输入框")
-            
-        except Exception as e:
-            print(f"  ⚠ SLS iframe加载过程中出错: {type(e).__name__} - {str(e)}")
-            print("    继续尝试查找PID输入框...")
+        # 等待SLS iframe加载完成（使用统一的等待函数）
+        await _wait_for_iframe_load(sls_frame)
         
         # 在SLS iframe中查找PID输入框
         pid_input_locator = None
