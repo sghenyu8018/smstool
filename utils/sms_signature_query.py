@@ -112,12 +112,38 @@ async def query_sms_signature(
                     try:
                         # 获取第一列（工单号）
                         first_cell = await row.query_selector('td.dumbo-antd-0-1-18-table-cell:nth-child(1)')
+                        # 获取第二列（签名名称）
+                        second_cell = await row.query_selector('td.dumbo-antd-0-1-18-table-cell:nth-child(2)')
                         # 获取第三列（修改时间）
                         third_cell = await row.query_selector('td.dumbo-antd-0-1-18-table-cell:nth-child(3)')
                         
-                        if first_cell and third_cell:
+                        if first_cell and second_cell and third_cell:
                             work_order_text = await first_cell.inner_text()
+                            # 提取签名名称：从div.break-all中提取文本，去除复制按钮等图标
+                            sign_name_cell = await second_cell.query_selector('div.break-all')
+                            if sign_name_cell:
+                                # 获取div.break-all内的文本内容（不包括子元素如复制按钮）
+                                sign_name_text = await sign_name_cell.evaluate('''el => {
+                                    // 克隆元素以保留原始结构
+                                    const clone = el.cloneNode(true);
+                                    // 移除所有svg图标（复制按钮）
+                                    clone.querySelectorAll("svg, span.anticon").forEach(s => s.remove());
+                                    // 返回清理后的文本
+                                    return clone.textContent.trim();
+                                }''')
+                            else:
+                                # 如果没有div.break-all，直接获取单元格文本
+                                sign_name_text = await second_cell.inner_text()
+                            
                             modify_time_text = await third_cell.inner_text()
+                            
+                            # 清理签名名称：去除空白字符
+                            sign_name_text = sign_name_text.strip() if sign_name_text else ""
+                            
+                            # 对签名名称进行完全匹配
+                            if sign_name_text != sign_name:
+                                print(f"  行 {idx+1}: 签名名称不匹配（期望: '{sign_name}', 实际: '{sign_name_text}'），跳过")
+                                continue
                             
                             extracted_id = extract_work_order_id(work_order_text)
                             modify_time = modify_time_text.strip()
@@ -126,9 +152,10 @@ async def query_sms_signature(
                                 work_order_data.append({
                                     'work_order_id': extracted_id,
                                     'modify_time': modify_time,
+                                    'sign_name': sign_name_text,
                                     'row_index': idx
                                 })
-                                print(f"  行 {idx+1}: 工单号={extracted_id}, 修改时间={modify_time}")
+                                print(f"  行 {idx+1}: 工单号={extracted_id}, 签名名称={sign_name_text}, 修改时间={modify_time} [签名匹配]")
                     except Exception as e:
                         print(f"  处理第 {idx+1} 行时出错: {e}")
                         continue
