@@ -110,15 +110,35 @@ async def query_sms_signature(
                 
                 for idx, row in enumerate(table_rows):
                     try:
-                        # 获取第一列（工单号）
+                        # 获取第一列（备选工单号）
                         first_cell = await row.query_selector('td.dumbo-antd-0-1-18-table-cell:nth-child(1)')
+                        # 获取第十列（主要工单号）
+                        tenth_cell = await row.query_selector('td.dumbo-antd-0-1-18-table-cell:nth-child(10)')
                         # 获取第二列（签名名称）
                         second_cell = await row.query_selector('td.dumbo-antd-0-1-18-table-cell:nth-child(2)')
                         # 获取第三列（修改时间）
                         third_cell = await row.query_selector('td.dumbo-antd-0-1-18-table-cell:nth-child(3)')
                         
-                        if first_cell and second_cell and third_cell:
-                            work_order_text = await first_cell.inner_text()
+                        if second_cell and third_cell:
+                            # 优先从第十列提取工单号（主要工单号）
+                            work_order_text = None
+                            work_order_source = None
+                            
+                            if tenth_cell:
+                                tenth_text = await tenth_cell.inner_text()
+                                extracted_id_from_tenth = extract_work_order_id(tenth_text)
+                                if extracted_id_from_tenth:
+                                    work_order_text = tenth_text
+                                    work_order_source = "第十列（主要）"
+                            
+                            # 如果第十列不存在或没有工单号，使用第一列作为备选
+                            if not work_order_text and first_cell:
+                                first_text = await first_cell.inner_text()
+                                extracted_id_from_first = extract_work_order_id(first_text)
+                                if extracted_id_from_first:
+                                    work_order_text = first_text
+                                    work_order_source = "第一列（备选）"
+                            
                             # 提取签名名称：从div.break-all中提取文本，去除复制按钮等图标
                             sign_name_cell = await second_cell.query_selector('div.break-all')
                             if sign_name_cell:
@@ -145,17 +165,21 @@ async def query_sms_signature(
                                 print(f"  行 {idx+1}: 签名名称不匹配（期望: '{sign_name}', 实际: '{sign_name_text}'），跳过")
                                 continue
                             
-                            extracted_id = extract_work_order_id(work_order_text)
-                            modify_time = modify_time_text.strip()
-                            
-                            if extracted_id and modify_time:
-                                work_order_data.append({
-                                    'work_order_id': extracted_id,
-                                    'modify_time': modify_time,
-                                    'sign_name': sign_name_text,
-                                    'row_index': idx
-                                })
-                                print(f"  行 {idx+1}: 工单号={extracted_id}, 签名名称={sign_name_text}, 修改时间={modify_time} [签名匹配]")
+                            # 如果找到了工单号，提取并保存
+                            if work_order_text:
+                                extracted_id = extract_work_order_id(work_order_text)
+                                modify_time = modify_time_text.strip()
+                                
+                                if extracted_id and modify_time:
+                                    work_order_data.append({
+                                        'work_order_id': extracted_id,
+                                        'modify_time': modify_time,
+                                        'sign_name': sign_name_text,
+                                        'row_index': idx
+                                    })
+                                    print(f"  行 {idx+1}: 工单号={extracted_id} ({work_order_source}), 签名名称={sign_name_text}, 修改时间={modify_time} [签名匹配]")
+                            else:
+                                print(f"  行 {idx+1}: 签名名称匹配但未找到工单号，跳过")
                     except Exception as e:
                         print(f"  处理第 {idx+1} 行时出错: {e}")
                         continue
