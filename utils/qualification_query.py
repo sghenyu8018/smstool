@@ -100,7 +100,7 @@ async def query_qualification_work_order(
         # 步骤4: 点击工单号链接，进入详情页面
         print("正在点击工单号链接，进入详情页面...")
         order_link = await page.wait_for_selector(
-            f'a[_nk="DYsM21"]:has-text("{work_order_id}")',
+            f'a:has-text("{work_order_id}")',
             timeout=10000,
             state='visible'
         )
@@ -258,7 +258,8 @@ async def query_qualification_work_order(
         
         # 步骤9: 从匹配的行中提取工单号并点击
         print("正在提取工单号并进入详情页面...")
-        order_link_in_row = await matching_row.query_selector('a[_nk="DYsM21"]')
+        # 在匹配的行中查找工单号链接（a标签），不依赖可变属性
+        order_link_in_row = await matching_row.query_selector('td.ant-table-cell a')
         if not order_link_in_row:
             return {
                 'success': False,
@@ -298,6 +299,9 @@ async def query_qualification_work_order(
             # 在同一行中查找pre标签（不依赖可变属性，直接查找pre标签）
             qualification_group_pre = await qualification_group_row.query_selector('pre')
             if qualification_group_pre:
+                # 获取pre标签中的文本内容，并去除前后空白字符以获得资质组ID
+                # 1. qualification_group_pre.inner_text()：获取pre标签的内部文本内容（异步方法，返回str类型）
+                # 2. (await ...).strip()：执行await以等待文本结果，然后用strip()去除两端空白字符，确保ID干净
                 qualification_group_id = (await qualification_group_pre.inner_text()).strip()
                 print(f"  ✓ 获取到资质组ID: {qualification_group_id}")
             else:

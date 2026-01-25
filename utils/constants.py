@@ -27,10 +27,10 @@ SELECTORS = {
     # 资质工单查询页面选择器
     'qualification_order_id_input': '#OrderId',  # 工单号输入框
     'qualification_query_button': 'button.ant-btn-primary:has-text("查 询")',  # 查询按钮
-    'qualification_order_link': 'td.ant-table-cell a[_nk="DYsM21"]',  # 工单号链接
+    'qualification_order_link': 'td.ant-table-cell a',  # 工单号链接（不依赖可变属性）
     'qualification_id_row': 'tr.ant-table-row td.ant-table-cell:has-text("关联资质ID")',  # 关联资质ID行
     'qualification_group_id_row': 'tr.ant-table-row td.ant-table-cell:has-text("资质组ID")',  # 资质组ID行
-    'qualification_id_value': 'pre[_nk="E7Xi41"]',  # 资质ID值（pre标签）
+    'qualification_id_value': 'pre',  # 资质ID值（pre标签，不依赖可变属性）
     'qualification_pid_input': 'input#PartnerId, input[placeholder*="PID"], input[placeholder*="pid"]',  # PID输入框
     'qualification_sms_row': 'tr.ant-table-row:has-text("短信资质(智能)")',  # 包含"短信资质(智能)"的行
 }
