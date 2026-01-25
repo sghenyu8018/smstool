@@ -64,7 +64,7 @@ async def _select_time_range_only(
         time_range_map = {
             '当天': ['当天', '今天', '今日'],
             '本周': ['本周', '本周（相对）'],
-            '一周': ['一周', '7天', '7天（相对）'],
+            '一周': ['1周', '7天', '7天（相对）'],
             '上周': ['上周', '上周（相对）'],
             '30天': ['30天', '30天（相对）']
         }
@@ -152,6 +152,15 @@ async def _select_time_range_only(
                     except Exception as e:
                         print(f"  ⚠ 等待iframe加载时出错: {e}，继续执行...")
                         await asyncio.sleep(2)
+                    
+                    # 滚动页面到底部
+                    print("  - 滚动页面到底部...")
+                    try:
+                        await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                        await asyncio.sleep(0.5)  # 等待滚动完成
+                        print("  ✓ 已滚动到页面底部")
+                    except Exception as e:
+                        print(f"  ⚠ 滚动页面时出错: {e}")
                 else:
                     print(f"  ✗ 未找到'{time_range}'选项")
                     return {
@@ -238,12 +247,47 @@ async def _select_time_range_only(
                         row_count = container_info.get('rowCount', 0)
                         
                         if row_count > 0:
-                            # 更新sls_frame引用和target_table_container
-                            sls_frame = current_sls_frame
-                            target_table_container = sls_frame.locator(f'#{container_id}')
-                            table_ready = True
-                            print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据（等待 {retry_count + 1} 次）")
-                            break
+                            # 检查表格中是否包含PID来判断是否加载完成
+                            if pid:
+                                # 获取表格容器并检查是否包含PID
+                                temp_container = current_sls_frame.locator(f'#{container_id}')
+                                table_body = temp_container.locator('div.obviz-base-easyTable-body')
+                                rows = table_body.locator('div.obviz-base-easyTable-row')
+                                
+                                # 检查前几行数据是否包含PID
+                                pid_found = False
+                                for i in range(min(row_count, 10)):  # 检查前10行
+                                    try:
+                                        row = rows.nth(i)
+                                        cells = row.locator('div.obviz-base-easyTable-cell')
+                                        if await cells.count() > 0:
+                                            # 第一个单元格通常是PID
+                                            pid_cell = cells.nth(0)
+                                            cell_text = await extract_cell_text(pid_cell)
+                                            if pid in cell_text.strip():
+                                                pid_found = True
+                                                print(f"    - 在表格第 {i+1} 行找到PID: {pid}，判断表格已加载完成")
+                                                break
+                                    except Exception:
+                                        continue
+                                
+                                # 如果找到了PID，认为表格已加载完成
+                                if pid_found:
+                                    sls_frame = current_sls_frame
+                                    target_table_container = sls_frame.locator(f'#{container_id}')
+                                    table_ready = True
+                                    print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据，已找到PID（等待 {retry_count + 1} 次）")
+                                    break
+                                else:
+                                    if retry_count % 3 == 0:
+                                        print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，表格有数据但未找到PID，继续等待...")
+                            else:
+                                # 如果没有PID，只要有数据行就认为加载完成
+                                sls_frame = current_sls_frame
+                                target_table_container = sls_frame.locator(f'#{container_id}')
+                                table_ready = True
+                                print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据（等待 {retry_count + 1} 次）")
+                                break
                         else:
                             if retry_count % 3 == 0:
                                 print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，表格容器已找到但数据未加载")
@@ -1061,10 +1105,45 @@ async def query_sms_success_rate(
                         
                         if container_info.get('found'):
                             container_id = container_info.get('id')
-                            target_table_container = sls_frame.locator(f'#{container_id}')
-                            table_ready = True
-                            print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据（等待 {retry_count + 1} 次）")
-                            break
+                            temp_container = sls_frame.locator(f'#{container_id}')
+                            
+                            # 检查表格中是否包含PID来判断是否加载完成
+                            if pid:
+                                table_body = temp_container.locator('div.obviz-base-easyTable-body')
+                                rows = table_body.locator('div.obviz-base-easyTable-row')
+                                
+                                # 检查前几行数据是否包含PID
+                                pid_found = False
+                                for i in range(min(row_count, 10)):  # 检查前10行
+                                    try:
+                                        row = rows.nth(i)
+                                        cells = row.locator('div.obviz-base-easyTable-cell')
+                                        if await cells.count() > 0:
+                                            # 第一个单元格通常是PID
+                                            pid_cell = cells.nth(0)
+                                            cell_text = await extract_cell_text(pid_cell)
+                                            if pid in cell_text.strip():
+                                                pid_found = True
+                                                print(f"    - 在表格第 {i+1} 行找到PID: {pid}，判断表格已加载完成")
+                                                break
+                                    except Exception:
+                                        continue
+                                
+                                # 如果找到了PID，认为表格已加载完成
+                                if pid_found:
+                                    target_table_container = temp_container
+                                    table_ready = True
+                                    print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据，已找到PID（等待 {retry_count + 1} 次）")
+                                    break
+                                else:
+                                    if retry_count % 3 == 0:
+                                        print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，表格有数据但未找到PID，继续等待...")
+                            else:
+                                # 如果没有PID，只要有数据行就认为加载完成
+                                target_table_container = temp_container
+                                table_ready = True
+                                print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据（等待 {retry_count + 1} 次）")
+                                break
                     else:
                         # 找到标题但还没有数据行，继续等待
                         if retry_count % 3 == 0:  # 每3次打印一次进度
