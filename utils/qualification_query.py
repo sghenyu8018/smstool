@@ -143,13 +143,16 @@ async def query_qualification_work_order(
         
         # 步骤7: 输入PID并查询
         print(f"正在输入PID: {pid}")
-        # 尝试多种PID输入框选择器
+        # 尝试多种PID输入框选择器（按优先级排序）
         pid_input = None
         pid_selectors = [
-            '#PartnerId',
+            '#UserId',  # 最准确的选择器（根据实际页面元素）
+            'input#UserId',  # 备选：带标签的选择器
+            '#PartnerId',  # 备选：其他可能的ID
             'input[placeholder*="PID"]',
             'input[placeholder*="pid"]',
-            'input[placeholder*="客户PID"]'
+            'input[placeholder*="客户PID"]',
+            'input[placeholder="请输入"]'  # 通用占位符（最后尝试）
         ]
         
         for selector in pid_selectors:
@@ -160,20 +163,52 @@ async def query_qualification_work_order(
                     if is_visible:
                         print(f"  ✓ 找到PID输入框: {selector}")
                         break
-            except Exception:
+                    else:
+                        print(f"  - 找到元素但不可见: {selector}")
+                        pid_input = None
+            except Exception as e:
+                print(f"  - 选择器 {selector} 查找失败: {e}")
                 continue
         
         if not pid_input:
+            # 输出更详细的调试信息
+            print("  ✗ 未找到PID输入框，尝试列出所有输入框...")
+            try:
+                all_inputs = await page.query_selector_all('input[type="text"]')
+                print(f"  - 页面中共找到 {len(all_inputs)} 个文本输入框")
+                for i, inp in enumerate(all_inputs[:5], 1):  # 只显示前5个
+                    try:
+                        inp_id = await inp.get_attribute('id')
+                        inp_placeholder = await inp.get_attribute('placeholder')
+                        inp_class = await inp.get_attribute('class')
+                        is_vis = await inp.is_visible()
+                        print(f"    输入框 {i}: id={inp_id}, placeholder={inp_placeholder}, class={inp_class}, visible={is_vis}")
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"  - 列出输入框时出错: {e}")
+            
             return {
                 'success': False,
                 'work_order_id': None,
                 'qualification_id': qualification_id,
                 'qualification_group_id': None,
-                'error': '未找到PID输入框'
+                'error': '未找到PID输入框，请检查页面结构'
             }
         
-        await pid_input.fill(pid)
-        await asyncio.sleep(0.5)
+        # 清空输入框并填写PID
+        await pid_input.click()  # 先点击获取焦点
+        await pid_input.fill('')  # 清空现有内容
+        await asyncio.sleep(0.2)
+        await pid_input.fill(pid)  # 填写新的PID
+        await asyncio.sleep(0.3)
+        
+        # 验证输入是否成功
+        input_value = await pid_input.input_value()
+        if input_value == pid:
+            print(f"  ✓ PID填写成功: {input_value}")
+        else:
+            print(f"  ⚠ PID填写后验证不一致: 期望={pid}, 实际={input_value}")
         
         # 点击查询按钮
         print("正在点击查询按钮...")
