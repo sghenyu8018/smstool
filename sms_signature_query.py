@@ -79,20 +79,20 @@ if __name__ == '__main__':
         
         try:
             # 执行查询（如果不传参数，会从环境变量读取）
-            result = await query_sms_signature(page=page)
+            signature_result = await query_sms_signature(page=page)
             
             # 处理结果
-            if result['success']:
+            if signature_result['success']:
                 print(f"\n[OK] 查询成功！")
-                print(f"工单号（最新）: {result['work_order_id']}")
+                print(f"工单号（最新）: {signature_result['work_order_id']}")
                 
                 # 如果有多行数据，显示所有工单号
-                if 'all_work_orders' in result and result['all_work_orders']:
-                    print(f"\n共找到 {result['total_count']} 个工单号:")
-                    for i, wo in enumerate(result['all_work_orders'], 1):
+                if 'all_work_orders' in signature_result and signature_result['all_work_orders']:
+                    print(f"\n共找到 {signature_result['total_count']} 个工单号:")
+                    for i, wo in enumerate(signature_result['all_work_orders'], 1):
                         print(f"  {i}. 工单号: {wo['work_order_id']}, 修改时间: {wo['modify_time']}")
             else:
-                print(f"\n[FAIL] 查询失败: {result['error']}")
+                print(f"\n[FAIL] 查询失败: {signature_result['error']}")
             
             # 查询短信签名成功率（多时间范围）
             print("\n" + "="*60)
@@ -132,13 +132,20 @@ if __name__ == '__main__':
                             sms_type = row.get('sms_type') or row.get('template_type', 'N/A')
                             submit_count = row.get('submit_count') or row.get('total_sent', 'N/A')
                             
-                            # 格式化成功率显示
+                            # 格式化成功率显示（移除%符号，只保留数字）
                             if isinstance(success_rate, (int, float)):
-                                success_rate_str = f"{success_rate}%"
+                                success_rate_str = f"{success_rate}"
                             else:
-                                success_rate_str = str(success_rate)
+                                # 移除%符号，只保留数字
+                                success_rate_str = str(success_rate).replace('%', '').strip()
                             
-                            print(f"{sign_name:<20} {success_rate_str:<15} {sms_type:<15} {submit_count:<15}")
+                            # 格式化提交量（保持原始格式，不添加千位分隔符）
+                            if isinstance(submit_count, (int, float)):
+                                submit_count_str = f"{int(submit_count)}"
+                            else:
+                                submit_count_str = str(submit_count)
+                            
+                            print(f"{sign_name:<20} {success_rate_str:<15} {sms_type:<15} {submit_count_str:<15}")
                     else:
                         print(f"\n{time_range}成功率")
                         print("-" * 60)
@@ -176,12 +183,82 @@ if __name__ == '__main__':
                             sms_type = row.get('sms_type') or row.get('template_type', 'N/A')
                             submit_count = row.get('submit_count') or row.get('total_sent', 'N/A')
                             
+                            # 格式化成功率显示（移除%符号，只保留数字）
                             if isinstance(success_rate, (int, float)):
-                                success_rate_str = f"{success_rate}%"
+                                success_rate_str = f"{success_rate}"
                             else:
-                                success_rate_str = str(success_rate)
+                                # 移除%符号，只保留数字
+                                success_rate_str = str(success_rate).replace('%', '').strip()
                             
-                            print(f"{sign_name:<20} {success_rate_str:<15} {sms_type:<15} {submit_count:<15}")
+                            # 格式化提交量（保持原始格式，不添加千位分隔符）
+                            if isinstance(submit_count, (int, float)):
+                                submit_count_str = f"{int(submit_count)}"
+                            else:
+                                submit_count_str = str(submit_count)
+                            
+                            print(f"{sign_name:<20} {success_rate_str:<15} {sms_type:<15} {submit_count_str:<15}")
+            
+            # 最后汇总输出：工单号和成功率数据
+            print("\n" + "="*60)
+            print("查询结果汇总")
+            print("="*60)
+            
+            # 输出工单号信息
+            if signature_result.get('success'):
+                print(f"\n工单号信息：")
+                print(f"  最新工单号: {signature_result.get('work_order_id', 'N/A')}")
+                if 'all_work_orders' in signature_result and signature_result['all_work_orders']:
+                    print(f"  共找到 {signature_result.get('total_count', 0)} 个工单号")
+                    for i, wo in enumerate(signature_result['all_work_orders'][:3], 1):  # 只显示前3个
+                        print(f"    {i}. {wo['work_order_id']} (修改时间: {wo['modify_time']})")
+            else:
+                print(f"\n工单号信息：查询失败 - {signature_result.get('error', '未知错误')}")
+            
+            # 输出成功率数据汇总（完整表格格式）
+            print(f"\n成功率数据汇总：")
+            has_success_data = False
+            for time_range in multi_result.get('time_ranges', []):
+                if time_range in multi_result.get('results', {}):
+                    result = multi_result['results'][time_range]
+                    if result.get('success') and result.get('data'):
+                        has_success_data = True
+                        # 输出完整表格格式（美化）
+                        print(f"\n{time_range}成功率")
+                        print("-" * 60)
+                        print(f"{'签名':<20} {'成功率':<15} {'短信类型':<15} {'提交量':<15}")
+                        print("-" * 60)
+                        
+                        for row in result['data']:
+                            sign_name = row.get('signname') or row.get('sign_name', 'N/A')
+                            success_rate = row.get('receipt_success_rate') or row.get('success_rate', 'N/A')
+                            sms_type = row.get('sms_type') or row.get('template_type', 'N/A')
+                            submit_count = row.get('submit_count') or row.get('total_sent', 'N/A')
+                            
+                            # 格式化成功率显示（移除%符号，只保留数字）
+                            if isinstance(success_rate, (int, float)):
+                                success_rate_str = f"{success_rate}"
+                            else:
+                                # 移除%符号，只保留数字
+                                success_rate_str = str(success_rate).replace('%', '').strip()
+                            
+                            # 格式化提交量（保持原始格式，不添加千位分隔符）
+                            if isinstance(submit_count, (int, float)):
+                                submit_count_str = f"{int(submit_count)}"
+                            else:
+                                submit_count_str = str(submit_count)
+                            
+                            print(f"{sign_name:<20} {success_rate_str:<15} {sms_type:<15} {submit_count_str:<15}")
+                    elif not result.get('success'):
+                        print(f"\n{time_range}成功率")
+                        print("-" * 60)
+                        print(f"查询失败: {result.get('error', '未知错误')}")
+                else:
+                    print(f"\n{time_range}成功率")
+                    print("-" * 60)
+                    print(f"查询结果不存在")
+            
+            if not has_success_data:
+                print("  无成功查询的数据")
                 
         finally:
             # 清理资源
