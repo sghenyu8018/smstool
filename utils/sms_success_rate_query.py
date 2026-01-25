@@ -107,6 +107,8 @@ async def _select_time_range_only(
                     for search_text in search_texts:
                         try:
                             option_locator = sls_frame.locator(f'text={search_text}').first
+                            option_locator_all = sls_frame.locator(f'text={search_text}')
+                            print(f"option_locator: {option_locator_all}")
                             if await option_locator.count() > 0:
                                 time_option_locator = option_locator
                                 print(f"  ✓ 在SLS iframe中通过文本找到'{search_text}'选项")
@@ -117,8 +119,39 @@ async def _select_time_range_only(
                 if time_option_locator:
                     print(f"  - 点击'{time_range}'选项...")
                     await time_option_locator.click()
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(3)  # 等待页面重新加载
                     print(f"  ✓ 已选择时间范围：{time_range}")
+                    
+                    # 切换时间范围后，iframe可能被重新加载，需要重新获取引用
+                    print("  - 重新获取SLS iframe引用（切换时间范围后可能重新加载）...")
+                    await asyncio.sleep(2)  # 等待iframe重新加载
+                    
+                    # 重新查找SLS iframe
+                    iframes = page.frames
+                    sls_frame = None
+                    for frame in iframes:
+                        if 'sls4service.console.aliyun.com' in frame.url and 'dashboard' in frame.url:
+                            sls_frame = frame
+                            break
+                    
+                    if not sls_frame:
+                        return {
+                            'success': False,
+                            'success_rate': None,
+                            'pid': pid,
+                            'time_range': time_range,
+                            'data': None,
+                            'error': '切换时间范围后未找到SLS iframe，可能iframe已重新加载'
+                        }
+                    
+                    # 等待iframe重新加载完成
+                    try:
+                        await sls_frame.wait_for_load_state('domcontentloaded', timeout=10000)
+                        print("  ✓ SLS iframe重新加载完成")
+                        await asyncio.sleep(2)  # 额外等待，确保内容渲染完成
+                    except Exception as e:
+                        print(f"  ⚠ 等待iframe加载时出错: {e}，继续执行...")
+                        await asyncio.sleep(2)
                 else:
                     print(f"  ✗ 未找到'{time_range}'选项")
                     return {
@@ -154,14 +187,30 @@ async def _select_time_range_only(
         print(f"\n步骤: 等待数据加载并提取成功率")
         
         # 等待表格数据加载
-        max_wait_retries = 20
+        max_wait_retries = 30  # 增加等待次数，因为切换时间范围后需要重新加载
         retry_count = 0
         table_ready = False
         target_table_container = None
         
         while retry_count < max_wait_retries and not table_ready:
             try:
-                title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
+                # 每次重试前，重新获取sls_frame引用（防止iframe重新加载导致引用失效）
+                iframes = page.frames
+                current_sls_frame = None
+                for frame in iframes:
+                    if 'sls4service.console.aliyun.com' in frame.url and 'dashboard' in frame.url:
+                        current_sls_frame = frame
+                        break
+                
+                if not current_sls_frame:
+                    if retry_count % 3 == 0:
+                        print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，SLS iframe未找到")
+                    retry_count += 1
+                    if retry_count < max_wait_retries:
+                        await asyncio.sleep(1)
+                    continue
+                
+                title_locator = current_sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
                 title_count = await title_locator.count()
                 
                 if title_count > 0:
@@ -189,19 +238,28 @@ async def _select_time_range_only(
                         row_count = container_info.get('rowCount', 0)
                         
                         if row_count > 0:
+                            # 更新sls_frame引用和target_table_container
+                            sls_frame = current_sls_frame
                             target_table_container = sls_frame.locator(f'#{container_id}')
                             table_ready = True
-                            print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据")
+                            print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据（等待 {retry_count + 1} 次）")
                             break
-            except Exception:
-                pass
+                        else:
+                            if retry_count % 3 == 0:
+                                print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，表格容器已找到但数据未加载")
+                else:
+                    if retry_count % 3 == 0:
+                        print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，标题元素未找到")
+            except Exception as e:
+                if retry_count % 3 == 0:
+                    print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，检查时出错: {type(e).__name__}")
             
             retry_count += 1
             if not table_ready and retry_count < max_wait_retries:
                 await asyncio.sleep(1)
         
         if not table_ready:
-            print(f"  ⚠ 等待表格数据加载超时，尝试继续查找...")
+            print(f"  ⚠ 等待表格数据加载超时（已等待 {retry_count} 秒），尝试继续查找...")
         
         await asyncio.sleep(1)
         
@@ -211,29 +269,45 @@ async def _select_time_range_only(
         matched_data = []
         
         try:
+            # 如果还没有找到表格容器，重新获取sls_frame引用并查找
             if not target_table_container:
-                title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
-                title_count = await title_locator.count()
+                print("  - 重新查找表格容器...")
+                # 重新获取sls_frame引用
+                iframes = page.frames
+                current_sls_frame = None
+                for frame in iframes:
+                    if 'sls4service.console.aliyun.com' in frame.url and 'dashboard' in frame.url:
+                        current_sls_frame = frame
+                        break
                 
-                if title_count > 0:
-                    title_element = title_locator.first
-                    container_info = await title_element.evaluate('''el => {
-                        let current = el;
-                        while (current) {
-                            if (current.id && current.id.startsWith('sls_chart_')) {
-                                return {
-                                    found: true,
-                                    id: current.id,
-                                    hasTable: current.querySelector('div.obviz-base-easyTable-body') !== null
-                                };
-                            }
-                            current = current.parentElement;
-                        }
-                        return { found: false };
-                    }''')
+                if current_sls_frame:
+                    sls_frame = current_sls_frame
+                    title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
+                    title_count = await title_locator.count()
                     
-                    if container_info.get('found'):
-                        target_table_container = sls_frame.locator(f'#{container_info["id"]}')
+                    if title_count > 0:
+                        print(f"  ✓ 找到标题元素")
+                        title_element = title_locator.first
+                        container_info = await title_element.evaluate('''el => {
+                            let current = el;
+                            while (current) {
+                                if (current.id && current.id.startsWith('sls_chart_')) {
+                                    return {
+                                        found: true,
+                                        id: current.id,
+                                        hasTable: current.querySelector('div.obviz-base-easyTable-body') !== null
+                                    };
+                                }
+                                current = current.parentElement;
+                            }
+                            return { found: false };
+                        }''')
+                        
+                        if container_info.get('found'):
+                            target_table_container = sls_frame.locator(f'#{container_info["id"]}')
+                            print(f"  ✓ 找到表格容器: {container_info['id']}")
+                else:
+                    print("  ✗ 未找到SLS iframe")
             
             if target_table_container:
                 table_body = target_table_container.locator('div.obviz-base-easyTable-body')
@@ -457,12 +531,12 @@ async def query_sms_success_rate(
         # 检查是否有iframe
         print("检查页面中是否有iframe...")
         iframes = page.frames
-        print(f"  - 找到 {len(iframes)} 个frame（包括主frame）")
-        for idx, frame in enumerate(iframes):
-            url = frame.url
-            name = frame.name or 'unnamed'
-            url_display = url[:100] + '...' if len(url) > 100 else url
-            print(f"    Frame {idx}: name='{name}', url='{url_display}'")
+        # print(f"  - 找到 {len(iframes)} 个frame（包括主frame）")
+        # for idx, frame in enumerate(iframes):
+        #     url = frame.url
+        #     name = frame.name or 'unnamed'
+        #     url_display = url[:100] + '...' if len(url) > 100 else url
+        #     print(f"    Frame {idx}: name='{name}', url='{url_display}'")
         
         # 直接定位到Frame 3（SLS iframe）
         sls_frame = None
@@ -802,21 +876,21 @@ async def query_sms_success_rate(
                 search_texts = time_range_map.get(time_range, [time_range])
                 
                 # 在开始查找之前，先打印出所有可用的时间范围选项
-                print(f"  - 打印所有可用的时间范围选项:")
-                try:
-                    all_option_nodes = await sls_frame.query_selector_all("li.obviz-base-li-block")
-                    print(f"    - 共找到 {len(all_option_nodes)} 个时间范围选项:")
-                    for idx, node in enumerate(all_option_nodes, 1):
-                        try:
-                            option_text = await node.inner_text()
-                            # 尝试获取更多信息（如是否可见、是否有特定属性等）
-                            is_visible = await node.is_visible()
-                            option_class = await node.get_attribute("class")
-                            print(f"      {idx}. {option_text} (可见: {is_visible}, class: {option_class})")
-                        except Exception as e:
-                            print(f"      {idx}. 读取选项信息失败: {e}")
-                except Exception as e:
-                    print(f"    - 获取时间范围选项列表失败: {e}")
+                # print(f"  - 打印所有可用的时间范围选项:")
+                # try:
+                #     all_option_nodes = await sls_frame.query_selector_all("li.obviz-base-li-block")
+                #     print(f"    - 共找到 {len(all_option_nodes)} 个时间范围选项:")
+                #     for idx, node in enumerate(all_option_nodes, 1):
+                #         try:
+                #             option_text = await node.inner_text()
+                #             # 尝试获取更多信息（如是否可见、是否有特定属性等）
+                #             is_visible = await node.is_visible()
+                #             option_class = await node.get_attribute("class")
+                #             print(f"      {idx}. {option_text} (可见: {is_visible}, class: {option_class})")
+                #         except Exception as e:
+                #             print(f"      {idx}. 读取选项信息失败: {e}")
+                # except Exception as e:
+                #     print(f"    - 获取时间范围选项列表失败: {e}")
                 
                 for search_text in search_texts:
                     try:
@@ -860,91 +934,91 @@ async def query_sms_success_rate(
         print(f"{'='*60}\n")
         
         # 6. 打印SLS iframe中的所有元素（用于调试）
-        logger = get_logger('sms_success_rate')
-        logger.log_section("步骤6: 打印SLS iframe中的所有元素（用于判断查询条件和输出内容）")
-        
-        try:
-            logger.info("\n【查询条件区域】")
-            
-            filter_texts = await sls_frame.query_selector_all('span.obviz-base-filterText')
-            filter_text_list = []
-            logger.info(f"  - 找到 {len(filter_texts)} 个筛选条件标签:")
-            for idx, filter_text in enumerate(filter_texts[:20], 1):
-                try:
-                    text = await filter_text.inner_text()
-                    logger.info(f"    {idx}. {text}")
-                    filter_text_list.append(text)
-                except Exception:
-                    pass
-            
-            inputs = await sls_frame.query_selector_all('input')
-            input_list = []
-            logger.info(f"\n  - 找到 {len(inputs)} 个输入框:")
-            for idx, inp in enumerate(inputs[:20], 1):
-                try:
-                    input_type = await inp.get_attribute('type') or 'text'
-                    input_value = await inp.get_attribute('value') or ''
-                    input_info = f"type={input_type}, value={input_value[:50]}"
-                    logger.info(f"    {idx}. {input_info}")
-                    input_list.append(input_info)
-                except Exception:
-                    pass
-            
-            logger.info("\n【输出内容区域】")
-            
-            # 查找表格行元素，支持多种表格实现方式
-            # - div.obviz-base-easyTable-row: 主要用于新版SLS前端的表格行
-            # - tr: 标准HTML表格行
-            # - div[class*="table"]: 匹配部分自定义类名含'table'的行元素，兼容不同产品线UI组件
-            # 这里的 div[class*="table"] 选择器表示：选择 class 属性中包含 "table" 字符串的所有 div 元素
-            # 这用于匹配自定义样式表格行，包括 class="custom-table-row"、class="main-table" 等。
-            table_rows = await sls_frame.query_selector_all(
-                'div.obviz-base-easyTable-row, tr, div[class*="table"]'
-            )
-            table_rows_count = len(table_rows)
-            logger.info(f"  - 找到 {table_rows_count} 个表格行/行元素（“表格元素”是指表格的每一行，包括可能的tr、div或自定义行元素）")
-            
-            # 提取表格行的具体内容
-            table_rows_content = []
-            for idx, row in enumerate(table_rows[:50], 1):  # 限制最多50行，避免日志过大
-                try:
-                    row_text = await row.inner_text()
-                    table_rows_content.append(f"行 {idx}: {row_text[:200]}")  # 限制每行200字符
-                    if idx <= 10:  # 前10行详细记录
-                        logger.info(f"    行 {idx}: {row_text[:200]}")
-                except Exception as e:
-                    table_rows_content.append(f"行 {idx}: [提取失败: {str(e)}]")
-            
-            table_cells = await sls_frame.query_selector_all('div.obviz-base-easyTable-cell, td, div[class*="table-cell"]')
-            table_cells_count = len(table_cells)
-            logger.info(f"  - 找到 {table_cells_count} 个表格单元格")
-            
-            # 提取表格单元格的具体内容
-            table_cells_content = []
-            for idx, cell in enumerate(table_cells[:100], 1):  # 限制最多100个单元格
-                try:
-                    cell_text = await extract_cell_text(cell)
-                    if cell_text.strip():  # 只记录非空单元格
-                        table_cells_content.append(f"单元格 {idx}: {cell_text.strip()[:100]}")  # 限制每个单元格100字符
-                        if idx <= 20:  # 前20个单元格详细记录
-                            logger.info(f"    单元格 {idx}: {cell_text.strip()[:100]}")
-                except Exception as e:
-                    table_cells_content.append(f"单元格 {idx}: [提取失败: {str(e)}]")
-            
-            # 使用日志模块记录到专门的日志文件
-            log_file = logger.log_iframe_elements(
-                pid=pid,
-                time_range=time_range,
-                filter_texts=filter_text_list,
-                inputs=input_list,
-                table_rows_count=table_rows_count,
-                table_cells_count=table_cells_count,
-                table_rows_content=table_rows_content,
-                table_cells_content=table_cells_content
-            )
-                
-        except Exception as e:
-            logger.error(f"  ✗ 打印元素时出错: {type(e).__name__} - {str(e)}")
+        # logger = get_logger('sms_success_rate')
+        # logger.log_section("步骤6: 打印SLS iframe中的所有元素（用于判断查询条件和输出内容）")
+        # 
+        # try:
+        #     logger.info("\n【查询条件区域】")
+        #     
+        #     filter_texts = await sls_frame.query_selector_all('span.obviz-base-filterText')
+        #     filter_text_list = []
+        #     logger.info(f"  - 找到 {len(filter_texts)} 个筛选条件标签:")
+        #     for idx, filter_text in enumerate(filter_texts[:20], 1):
+        #         try:
+        #             text = await filter_text.inner_text()
+        #             logger.info(f"    {idx}. {text}")
+        #             filter_text_list.append(text)
+        #         except Exception:
+        #             pass
+        #     
+        #     inputs = await sls_frame.query_selector_all('input')
+        #     input_list = []
+        #     logger.info(f"\n  - 找到 {len(inputs)} 个输入框:")
+        #     for idx, inp in enumerate(inputs[:20], 1):
+        #         try:
+        #             input_type = await inp.get_attribute('type') or 'text'
+        #             input_value = await inp.get_attribute('value') or ''
+        #             input_info = f"type={input_type}, value={input_value[:50]}"
+        #             logger.info(f"    {idx}. {input_info}")
+        #             input_list.append(input_info)
+        #         except Exception:
+        #             pass
+        #     
+        #     logger.info("\n【输出内容区域】")
+        #     
+        #     # 查找表格行元素，支持多种表格实现方式
+        #     # - div.obviz-base-easyTable-row: 主要用于新版SLS前端的表格行
+        #     # - tr: 标准HTML表格行
+        #     # - div[class*="table"]: 匹配部分自定义类名含'table'的行元素，兼容不同产品线UI组件
+        #     # 这里的 div[class*="table"] 选择器表示：选择 class 属性中包含 "table" 字符串的所有 div 元素
+        #     # 这用于匹配自定义样式表格行，包括 class="custom-table-row"、class="main-table" 等。
+        #     table_rows = await sls_frame.query_selector_all(
+        #         'div.obviz-base-easyTable-row, tr, div[class*="table"]'
+        #     )
+        #     table_rows_count = len(table_rows)
+        #     logger.info(f"  - 找到 {table_rows_count} 个表格行/行元素（"表格元素"是指表格的每一行，包括可能的tr、div或自定义行元素）")
+        #     
+        #     # 提取表格行的具体内容
+        #     table_rows_content = []
+        #     for idx, row in enumerate(table_rows[:50], 1):  # 限制最多50行，避免日志过大
+        #         try:
+        #             row_text = await row.inner_text()
+        #             table_rows_content.append(f"行 {idx}: {row_text[:200]}")  # 限制每行200字符
+        #             if idx <= 10:  # 前10行详细记录
+        #                 logger.info(f"    行 {idx}: {row_text[:200]}")
+        #         except Exception as e:
+        #             table_rows_content.append(f"行 {idx}: [提取失败: {str(e)}]")
+        #     
+        #     table_cells = await sls_frame.query_selector_all('div.obviz-base-easyTable-cell, td, div[class*="table-cell"]')
+        #     table_cells_count = len(table_cells)
+        #     logger.info(f"  - 找到 {table_cells_count} 个表格单元格")
+        #     
+        #     # 提取表格单元格的具体内容
+        #     table_cells_content = []
+        #     for idx, cell in enumerate(table_cells[:100], 1):  # 限制最多100个单元格
+        #         try:
+        #             cell_text = await extract_cell_text(cell)
+        #             if cell_text.strip():  # 只记录非空单元格
+        #                 table_cells_content.append(f"单元格 {idx}: {cell_text.strip()[:100]}")  # 限制每个单元格100字符
+        #                 if idx <= 20:  # 前20个单元格详细记录
+        #                     logger.info(f"    单元格 {idx}: {cell_text.strip()[:100]}")
+        #         except Exception as e:
+        #             table_cells_content.append(f"单元格 {idx}: [提取失败: {str(e)}]")
+        #     
+        #     # 使用日志模块记录到专门的日志文件
+        #     log_file = logger.log_iframe_elements(
+        #         pid=pid,
+        #         time_range=time_range,
+        #         filter_texts=filter_text_list,
+        #         inputs=input_list,
+        #         table_rows_count=table_rows_count,
+        #         table_cells_count=table_cells_count,
+        #         table_rows_content=table_rows_content,
+        #         table_cells_content=table_cells_content
+        #     )
+        #         
+        # except Exception as e:
+        #     logger.error(f"  ✗ 打印元素时出错: {type(e).__name__} - {str(e)}")
         
         print(f"\n{'='*60}")
         print(f"步骤7: 等待数据加载并提取成功率")
