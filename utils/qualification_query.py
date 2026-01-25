@@ -232,124 +232,129 @@ async def query_qualification_work_order(
         await query_button.click()
         await asyncio.sleep(2)  # 等待查询结果加载
         
-        # 步骤8: 查找包含"短信资质(智能)"的行
-        print("正在查找包含'短信资质(智能)'的行...")
+        # 步骤8: 查找所有包含"短信资质"的行
+        print("正在查找所有包含'短信资质'的行...")
         sms_rows = await page.query_selector_all('tr.ant-table-row')
-        matching_row = None
+        matching_rows = []
         
         for row in sms_rows:
             try:
                 row_text = await row.inner_text()
-                if '短信资质(智能)' in row_text:
-                    matching_row = row
-                    print(f"  ✓ 找到包含'短信资质(智能)'的行")
-                    break
+                if '短信资质' in row_text:
+                    matching_rows.append(row)
+                    print(f"  ✓ 找到包含'短信资质'的行")
             except Exception:
                 continue
         
-        if not matching_row:
+        if not matching_rows:
             return {
                 'success': False,
                 'work_order_id': None,
                 'qualification_id': qualification_id,
                 'qualification_group_id': None,
-                'error': '未找到包含"短信资质(智能)"的行'
+                'error': '未找到包含"短信资质"的行'
             }
         
-        # 步骤9: 从匹配的行中提取工单号并点击
-        print("正在提取工单号并进入详情页面...")
-        # 在匹配的行中查找工单号链接（a标签），不依赖可变属性
-        order_link_in_row = await matching_row.query_selector('td.ant-table-cell a')
-        if not order_link_in_row:
-            return {
-                'success': False,
-                'work_order_id': None,
-                'qualification_id': qualification_id,
-                'qualification_group_id': None,
-                'error': '在匹配的行中未找到工单号链接'
-            }
+        print(f"共找到 {len(matching_rows)} 个包含'短信资质'的行，开始依次检查...")
         
-        matched_work_order_id = (await order_link_in_row.inner_text()).strip()
-        print(f"  ✓ 找到匹配的工单号: {matched_work_order_id}")
-        
-        await order_link_in_row.click()
-        await asyncio.sleep(2)  # 等待详情页面加载
-        
-        # 步骤10: 获取资质组ID
-        print("正在获取资质组ID...")
-        qualification_group_id = None
-        try:
-            # 查找包含"资质组ID"的行
-            # 等待页面中出现包含"资质组ID"文本的表格行
-            # 解释：
-            # - 'tr.ant-table-row:has-text("资质组ID")'：选择包含"资质组ID"文本的表格行
-            # - timeout=5000：超时时间设为5秒，避免无限等待
-            # - state='visible'：要求该元素处于可见状态，确保页面已加载
-            # 等待页面中出现包含“资质组ID”的表格行，并确保该元素处于可见状态
-            # wait_for_selector 方法作用解释：
-            # - 这是 Playwright 异步页面操作中用于等待元素出现的常用方法。
-            # - 这里用于查找 table 行（tr.ant-table-row），要求该行中包含 "资质组ID" 文本。
-            # - 'state="visible"' 参数表示必须等到该行在页面上变得可见时才继续后续操作，避免出现元素还未渲染完毕时操作导致的报错。
-            # - 'timeout=5000' 参数表示最多等待5秒钟，如超时仍未找到会抛出 TimeoutError。
-            qualification_group_row = await page.wait_for_selector(
-                'tr.ant-table-row:has-text("资质组ID")',  # CSS选择器：查找包含"资质组ID"的行
-                timeout=5000,           # 最长等待5秒（单位为毫秒）
-                state='visible'         # 直到该元素可见为止
-            )
-            # 在同一行中查找pre标签（不依赖可变属性，直接查找pre标签）
-            qualification_group_pre = await qualification_group_row.query_selector('pre')
-            if qualification_group_pre:
-                # 获取pre标签中的文本内容，并去除前后空白字符以获得资质组ID
-                # 1. qualification_group_pre.inner_text()：获取pre标签的内部文本内容（异步方法，返回str类型）
-                # 2. (await ...).strip()：执行await以等待文本结果，然后用strip()去除两端空白字符，确保ID干净
-                qualification_group_id = (await qualification_group_pre.inner_text()).strip()
-                print(f"  ✓ 获取到资质组ID: {qualification_group_id}")
+        # 步骤9-11: 对每个匹配的行，依次进入详情页面检查资质组ID
+        for idx, matching_row in enumerate(matching_rows, 1):
+            print(f"\n--- 检查第 {idx}/{len(matching_rows)} 个工单 ---")
+            
+            # 从匹配的行中提取工单号并点击
+            print("正在提取工单号并进入详情页面...")
+            # 在匹配的行中查找工单号链接（a标签），不依赖可变属性
+            order_link_in_row = await matching_row.query_selector('td.ant-table-cell a')
+            if not order_link_in_row:
+                print(f"  ⚠ 第 {idx} 个工单：未找到工单号链接，跳过")
+                continue
+            
+            matched_work_order_id = (await order_link_in_row.inner_text()).strip()
+            print(f"  ✓ 找到工单号: {matched_work_order_id}")
+            
+            await order_link_in_row.click()
+            await asyncio.sleep(2)  # 等待详情页面加载
+            
+            # 获取资质组ID
+            print("正在获取资质组ID...")
+            qualification_group_id = None
+            try:
+                # 查找包含"资质组ID"的行
+                qualification_group_row = await page.wait_for_selector(
+                    'tr.ant-table-row:has-text("资质组ID")',
+                    timeout=5000,
+                    state='visible'
+                )
+                # 在同一行中查找pre标签（不依赖可变属性，直接查找pre标签）
+                qualification_group_pre = await qualification_group_row.query_selector('pre')
+                if qualification_group_pre:
+                    qualification_group_id = (await qualification_group_pre.inner_text()).strip()
+                    print(f"  ✓ 获取到资质组ID: {qualification_group_id}")
+                else:
+                    # 如果pre标签不存在，尝试查找其他可能包含ID的元素（如td中的文本）
+                    print("  ⚠ 未找到pre标签，尝试其他方式...")
+                    tds = await qualification_group_row.query_selector_all('td')
+                    for td in tds:
+                        td_text = (await td.inner_text()).strip()
+                        if td_text and td_text.isdigit():
+                            qualification_group_id = td_text
+                            print(f"  ✓ 从td中获取到资质组ID: {qualification_group_id}")
+                            break
+                    if not qualification_group_id:
+                        print("  ⚠ 未找到资质组ID")
+            except Exception as e:
+                print(f"  ✗ 获取资质组ID失败: {e}")
+            
+            # 比较两个ID
+            if qualification_group_id:
+                print(f"比较资质ID: 关联资质ID={qualification_id}, 资质组ID={qualification_group_id}")
+                if qualification_id == qualification_group_id:
+                    print(f"  ✓ 资质ID匹配！返回工单号: {matched_work_order_id}")
+                    return {
+                        'success': True,
+                        'work_order_id': matched_work_order_id,
+                        'qualification_id': qualification_id,
+                        'qualification_group_id': qualification_group_id,
+                        'error': None
+                    }
+                else:
+                    print(f"  ✗ 资质ID不匹配，继续检查下一个工单")
             else:
-                # 如果pre标签不存在，尝试查找其他可能包含ID的元素（如td中的文本）
-                print("  ⚠ 未找到pre标签，尝试其他方式...")
-                # 尝试查找行中的所有td，找到包含数字的单元格
-                tds = await qualification_group_row.query_selector_all('td')
-                for td in tds:
-                    td_text = (await td.inner_text()).strip()
-                    # 如果单元格包含数字（可能是ID），使用它
-                    if td_text and td_text.isdigit():
-                        qualification_group_id = td_text
-                        print(f"  ✓ 从td中获取到资质组ID: {qualification_group_id}")
-                        break
-                if not qualification_group_id:
-                    print("  ⚠ 未找到资质组ID")
-        except Exception as e:
-            print(f"  ✗ 获取资质组ID失败: {e}")
+                print(f"  ⚠ 未能获取到资质组ID，继续检查下一个工单")
+            
+            # 返回查询页面，准备检查下一个工单
+            if idx < len(matching_rows):
+                print("正在返回工单查询页面...")
+                await page.goto(QUALIFICATION_ORDER_QUERY_URL, timeout=timeout, wait_until='domcontentloaded')
+                await asyncio.sleep(1)
+                
+                # 重新输入PID并查询（因为返回页面后需要重新查询）
+                print("重新输入PID并查询...")
+                pid_input = await page.query_selector('#UserId')
+                if pid_input:
+                    await pid_input.click()
+                    await pid_input.fill('')
+                    await asyncio.sleep(0.2)
+                    await pid_input.fill(pid)
+                    await asyncio.sleep(0.3)
+                
+                query_button = await page.wait_for_selector(
+                    SELECTORS['qualification_query_button'],
+                    timeout=5000,
+                    state='visible'
+                )
+                await query_button.click()
+                await asyncio.sleep(2)  # 等待查询结果加载
         
-        if not qualification_group_id:
-            return {
-                'success': False,
-                'work_order_id': None,
-                'qualification_id': qualification_id,
-                'qualification_group_id': None,
-                'error': '未能获取到资质组ID'
-            }
-        
-        # 步骤11: 比较两个ID
-        print(f"\n比较资质ID: 关联资质ID={qualification_id}, 资质组ID={qualification_group_id}")
-        if qualification_id == qualification_group_id:
-            print(f"  ✓ 资质ID匹配！返回工单号: {matched_work_order_id}")
-            return {
-                'success': True,
-                'work_order_id': matched_work_order_id,
-                'qualification_id': qualification_id,
-                'qualification_group_id': qualification_group_id,
-                'error': None
-            }
-        else:
-            print(f"  ✗ 资质ID不匹配")
-            return {
-                'success': False,
-                'work_order_id': None,
-                'qualification_id': qualification_id,
-                'qualification_group_id': qualification_group_id,
-                'error': f'资质ID不匹配：关联资质ID={qualification_id}, 资质组ID={qualification_group_id}'
-            }
+        # 如果所有工单都检查完毕仍未找到匹配的
+        print(f"\n所有 {len(matching_rows)} 个工单都已检查完毕，未找到匹配的资质ID")
+        return {
+            'success': False,
+            'work_order_id': None,
+            'qualification_id': qualification_id,
+            'qualification_group_id': None,
+            'error': f'已检查所有包含"短信资质"的工单（共 {len(matching_rows)} 个），但未找到匹配的资质ID'
+        }
             
     except PlaywrightTimeoutError as e:
         error_msg = f"操作超时（超过 {timeout/1000} 秒）: {str(e)}"
