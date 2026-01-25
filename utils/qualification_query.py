@@ -232,24 +232,72 @@ async def query_qualification_work_order(
         await query_button.click()
         await asyncio.sleep(2)  # 等待查询结果加载
         
-        # 步骤8: 查找所有包含"短信资质"的行，提取工单号列表
+        # 步骤8: 查找所有包含"短信资质"的行，提取工单号列表（支持分页）
         print("正在查找所有包含'短信资质'的行...")
-        sms_rows = await page.query_selector_all('tr.ant-table-row')
         work_order_ids = []  # 存储工单号列表，而不是元素引用
+        page_num = 1
         
-        for row in sms_rows:
+        while True:
+            print(f"\n--- 处理第 {page_num} 页 ---")
+            
+            # 等待当前页的表格加载
+            await asyncio.sleep(1)
+            
+            # 查找当前页所有包含"短信资质"的行
+            sms_rows = await page.query_selector_all('tr.ant-table-row')
+            current_page_count = 0
+            
+            for row in sms_rows:
+                try:
+                    row_text = await row.inner_text()
+                    if '短信资质' in row_text:
+                        # 提取工单号并保存，而不是保存元素引用
+                        order_link = await row.query_selector('td.ant-table-cell a')
+                        if order_link:
+                            work_order_id = (await order_link.inner_text()).strip()
+                            if work_order_id and work_order_id not in work_order_ids:  # 避免重复
+                                work_order_ids.append(work_order_id)
+                                current_page_count += 1
+                                print(f"  ✓ 找到包含'短信资质'的行，工单号: {work_order_id}")
+                except Exception:
+                    continue
+            
+            print(f"  第 {page_num} 页找到 {current_page_count} 个包含'短信资质'的工单")
+            
+            # 检查是否有下一页
+            has_next_page = False
             try:
-                row_text = await row.inner_text()
-                if '短信资质' in row_text:
-                    # 提取工单号并保存，而不是保存元素引用
-                    order_link = await row.query_selector('td.ant-table-cell a')
-                    if order_link:
-                        work_order_id = (await order_link.inner_text()).strip()
-                        if work_order_id:
-                            work_order_ids.append(work_order_id)
-                            print(f"  ✓ 找到包含'短信资质'的行，工单号: {work_order_id}")
-            except Exception:
-                continue
+                next_page_button = await page.query_selector('li.ant-pagination-next')
+                if next_page_button:
+                    # 检查是否被禁用
+                    is_disabled = await next_page_button.get_attribute('aria-disabled')
+                    has_disabled_class = await next_page_button.evaluate('el => el.classList.contains("ant-pagination-disabled")')
+                    
+                    if is_disabled != 'true' and not has_disabled_class:
+                        has_next_page = True
+                        print(f"  发现还有下一页，准备点击...")
+            except Exception as e:
+                print(f"  检查下一页时出错: {e}")
+            
+            # 如果没有下一页，退出循环
+            if not has_next_page:
+                print(f"  已处理完所有页面，共找到 {len(work_order_ids)} 个包含'短信资质'的工单")
+                break
+            
+            # 点击下一页
+            try:
+                next_page_button = await page.query_selector('li.ant-pagination-next button')
+                if next_page_button:
+                    await next_page_button.click()
+                    page_num += 1
+                    await asyncio.sleep(2)  # 等待下一页加载
+                    print(f"  ✓ 已点击下一页，等待页面加载...")
+                else:
+                    print(f"  ⚠ 未找到下一页按钮，停止分页")
+                    break
+            except Exception as e:
+                print(f"  ✗ 点击下一页失败: {e}")
+                break
         
         if not work_order_ids:
             return {
