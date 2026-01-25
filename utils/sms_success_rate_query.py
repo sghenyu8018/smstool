@@ -153,12 +153,31 @@ async def _select_time_range_only(
                         print(f"  ⚠ 等待iframe加载时出错: {e}，继续执行...")
                         await asyncio.sleep(2)
                     
-                    # 滚动页面到底部
+                    # 滚动页面到底部，确保表格内容完全可见
                     print("  - 滚动页面到底部...")
                     try:
+                        # 方法1: 滚动到页面底部
                         await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                        await asyncio.sleep(0.5)  # 等待滚动完成
-                        print("  ✓ 已滚动到页面底部")
+                        await asyncio.sleep(1)  # 等待滚动完成
+                        
+                        # 方法2: 尝试滚动到表格元素（如果存在）
+                        try:
+                            title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
+                            if await title_locator.count() > 0:
+                                await title_locator.first.scroll_into_view_if_needed()
+                                await asyncio.sleep(1)  # 等待滚动完成
+                                print("  ✓ 已滚动到表格元素")
+                        except Exception:
+                            pass
+                        
+                        # 方法3: 再次滚动到底部，确保所有内容都可见
+                        await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                        await asyncio.sleep(1)  # 等待滚动和内容渲染完成
+                        
+                        # 验证滚动位置
+                        scroll_position = await sls_frame.evaluate('window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop')
+                        max_scroll = await sls_frame.evaluate('Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight, document.documentElement.offsetHeight, document.body.clientHeight, document.documentElement.clientHeight)')
+                        print(f"  ✓ 已滚动到页面底部（位置: {scroll_position}, 最大: {max_scroll}）")
                     except Exception as e:
                         print(f"  ⚠ 滚动页面时出错: {e}")
                 else:
@@ -218,6 +237,14 @@ async def _select_time_range_only(
                     if retry_count < max_wait_retries:
                         await asyncio.sleep(1)
                     continue
+                
+                # 在等待过程中，定期滚动页面以触发懒加载
+                if retry_count % 5 == 0 and retry_count > 0:  # 每5次重试滚动一次
+                    try:
+                        await current_sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                        await asyncio.sleep(0.5)
+                    except Exception:
+                        pass
                 
                 title_locator = current_sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
                 title_count = await title_locator.count()
@@ -960,12 +987,31 @@ async def query_sms_success_rate(
                     await asyncio.sleep(2)  # 等待页面加载
                     print(f"  ✓ 已选择时间范围：{time_range}")
                     
-                    # 滚动页面到底部
+                    # 滚动页面到底部，确保表格内容完全可见
                     print("  - 滚动页面到底部...")
                     try:
+                        # 方法1: 滚动到页面底部
                         await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                        await asyncio.sleep(0.5)  # 等待滚动完成
-                        print("  ✓ 已滚动到页面底部")
+                        await asyncio.sleep(1)  # 等待滚动完成
+                        
+                        # 方法2: 尝试滚动到表格元素（如果存在）
+                        try:
+                            title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
+                            if await title_locator.count() > 0:
+                                await title_locator.first.scroll_into_view_if_needed()
+                                await asyncio.sleep(1)  # 等待滚动完成
+                                print("  ✓ 已滚动到表格元素")
+                        except Exception:
+                            pass
+                        
+                        # 方法3: 再次滚动到底部，确保所有内容都可见
+                        await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                        await asyncio.sleep(1)  # 等待滚动和内容渲染完成
+                        
+                        # 验证滚动位置
+                        scroll_position = await sls_frame.evaluate('window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop')
+                        max_scroll = await sls_frame.evaluate('Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight, document.documentElement.offsetHeight, document.body.clientHeight, document.documentElement.clientHeight)')
+                        print(f"  ✓ 已滚动到页面底部（位置: {scroll_position}, 最大: {max_scroll}）")
                     except Exception as e:
                         print(f"  ⚠ 滚动页面时出错: {e}")
                 else:
@@ -1079,6 +1125,14 @@ async def query_sms_success_rate(
         
         while retry_count < max_wait_retries and not table_ready:
             try:
+                # 在等待过程中，定期滚动页面以触发懒加载
+                if retry_count % 5 == 0 and retry_count > 0:  # 每5次重试滚动一次
+                    try:
+                        await sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                        await asyncio.sleep(0.5)
+                    except Exception:
+                        pass
+                
                 # 直接使用定位器查找包含"客户签名视角 -剔除重试过程"标题的元素
                 title_locator = sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
                 title_count = await title_locator.count()
@@ -1185,52 +1239,19 @@ async def query_sms_success_rate(
                     
                     if title_count > 0:
                         print(f"  ✓ 找到标题元素")
-                        title_element = title_locator.first
-                        
-                        # 通过JavaScript查找包含表格的父容器
-                        container_info = await title_element.evaluate('''el => {
-                            let current = el;
-                            while (current) {
-                                if (current.id && current.id.startsWith('sls_chart_')) {
-                                    return {
-                                        found: true,
-                                        id: current.id,
-                                        hasTable: current.querySelector('div.obviz-base-easyTable-body') !== null
-                                    };
-                                }
-                                current = current.parentElement;
-                            }
-                            return { found: false };
-                        }''')
-                        
-                        if container_info.get('found'):
-                            print(f"  ✓ 找到表格容器: {container_info.get('id')}")
-                            target_table_container = sls_frame.locator(f'#{container_info["id"]}')
-                        else:
-                            target_table_container = title_locator.locator('xpath=ancestor::div[contains(@id, "sls_chart_")]')
-                            container_count = await target_table_container.count()
-                            if container_count == 0:
-                                target_table_container = None
+                        # 找到标题元素后，直接使用通用选择器查找表格行
+                        print("  - 使用通用选择器查找表格行...")
+                        table_rows = await sls_frame.query_selector_all('div.obviz-base-easyTable-body div.obviz-base-easyTable-row')
                     else:
                         print(f"  ⚠ 未找到标题元素")
+                        table_rows = []
                 except Exception as e:
                     print(f"  ⚠ 查找标题元素时出错: {e}")
+                    table_rows = []
             
-            # 在目标表格容器中查找表格行
-            if target_table_container:
-                print("  - 在目标表格容器中查找数据行...")
-                # 使用 query_selector_all 获取 ElementHandle 列表
-                table_rows_locator = target_table_container.locator('div.obviz-base-easyTable-body div.obviz-base-easyTable-row')
-                table_rows_count = await table_rows_locator.count()
-                table_rows = []
-                for i in range(table_rows_count):
-                    row_locator = table_rows_locator.nth(i)
-                    # 通过 evaluate 获取实际的 DOM 元素
-                    row_element = await row_locator.element_handle()
-                    if row_element:
-                        table_rows.append(row_element)
-            else:
-                print("  ⚠ 未找到目标表格容器，使用通用选择器查找...")
+            # 如果找到了表格行，继续处理
+            if not table_rows:
+                print("  ⚠ 未找到表格行，尝试使用通用选择器查找...")
                 # 使用 query_selector_all 获取 ElementHandle 列表
                 table_rows = await sls_frame.query_selector_all('div.obviz-base-easyTable-body div.obviz-base-easyTable-row')
             
