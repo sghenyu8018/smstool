@@ -255,177 +255,6 @@ async def _select_time_range(
         error_msg = f"选择时间范围时出错: {str(e)}"
         print(f"  ✗ {error_msg}")
         return (False, sls_frame, error_msg)
-
-
-async def _wait_for_table_ready(
-    page: Page,
-    sls_frame,
-    pid: Optional[str],
-    max_wait_retries: int = 30,
-    reacquire_frame: bool = False
-) -> Tuple[bool, Optional[any], any]:
-    """
-    等待表格数据加载完成
-    
-    Args:
-        page: Playwright Page 对象
-        sls_frame: SLS iframe对象（如果reacquire_frame=True，可能会被更新）
-        pid: 客户PID（用于检查表格是否包含PID）
-        max_wait_retries: 最大等待次数，默认30次
-        reacquire_frame: 是否在每次重试前重新获取iframe引用
-        
-    Returns:
-        tuple: (table_ready, target_table_container, updated_sls_frame)
-            - table_ready: 表格是否已加载完成
-            - target_table_container: 表格容器定位器（如果找到）
-            - updated_sls_frame: 更新后的sls_frame引用
-    """
-    retry_count = 0
-    table_ready = False
-    target_table_container = None
-    current_sls_frame = sls_frame
-    
-    while retry_count < max_wait_retries and not table_ready:
-        try:
-            # 如果需要重新获取iframe引用（切换时间范围后iframe可能重新加载）
-            if reacquire_frame:
-                current_sls_frame = await _find_sls_iframe(page)
-                
-                if not current_sls_frame:
-                    if retry_count % 3 == 0:
-                        print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，SLS iframe未找到")
-                    retry_count += 1
-                    if retry_count < max_wait_retries:
-                        await asyncio.sleep(1)
-                    continue
-            
-            # 在等待过程中，定期滚动页面以触发懒加载
-            if retry_count % 5 == 0 and retry_count > 0:  # 每5次重试滚动一次
-                try:
-                    await current_sls_frame.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                    await asyncio.sleep(0.5)
-                except Exception:
-                    pass
-            
-            # 查找表格标题
-            title_locator = current_sls_frame.locator('span.chartPanel-m__text__e25a6898:has-text("客户签名视角 -剔除重试过程")')
-            title_count = await title_locator.count()
-            
-            if title_count > 0:
-                # 获取表格行数（两种方式都尝试）
-                title_element = title_locator.first
-                
-                # 方式1: 使用JavaScript获取行数（更准确）
-                container_info = await title_element.evaluate('''el => {
-                    let current = el;
-                    while (current) {
-                        if (current.id && current.id.startsWith('sls_chart_')) {
-                            const tableBody = current.querySelector('div.obviz-base-easyTable-body');
-                            const rows = tableBody ? tableBody.querySelectorAll('div.obviz-base-easyTable-row') : [];
-                            return {
-                                found: true,
-                                id: current.id,
-                                hasTable: tableBody !== null,
-                                rowCount: rows.length
-                            };
-                        }
-                        current = current.parentElement;
-                    }
-                    return { found: false };
-                }''')
-                
-                # 方式2: 如果方式1失败，使用xpath查找
-                if not container_info.get('found'):
-                    table_rows_locator = title_locator.locator('xpath=ancestor::div[contains(@id, "sls_chart_")]//div[contains(@class, "obviz-base-easyTable-row")]')
-                    row_count = await table_rows_locator.count()
-                    if row_count > 0:
-                        # 获取容器ID
-                        container_info = await title_element.evaluate('''el => {
-                            let current = el;
-                            while (current) {
-                                if (current.id && current.id.startsWith('sls_chart_')) {
-                                    return { found: true, id: current.id };
-                                }
-                                current = current.parentElement;
-                            }
-                            return { found: false };
-                        }''')
-                        if container_info.get('found'):
-                            container_info['rowCount'] = row_count
-                
-                if container_info.get('found'):
-                    container_id = container_info.get('id')
-                    row_count = container_info.get('rowCount', 0)
-                    
-                    if row_count > 0:
-                        # 检查表格中是否包含PID来判断是否加载完成
-                        if pid:
-                            # 获取表格容器并检查是否包含PID
-                            temp_container = current_sls_frame.locator(f'#{container_id}')
-                            table_body = temp_container.locator('div.obviz-base-easyTable-body')
-                            rows = table_body.locator('div.obviz-base-easyTable-row')
-                            
-                            # 检查前几行数据是否包含PID
-                            pid_found = False
-                            for i in range(min(row_count, 10)):  # 检查前10行
-                                try:
-                                    row = rows.nth(i)
-                                    cells = row.locator('div.obviz-base-easyTable-cell')
-                                    if await cells.count() > 0:
-                                        # 第一个单元格通常是PID
-                                        pid_cell = cells.nth(0)
-                                        cell_text = await extract_cell_text(pid_cell)
-                                        if pid in cell_text.strip():
-                                            pid_found = True
-                                            print(f"    - 在表格第 {i+1} 行找到PID: {pid}，判断表格已加载完成")
-                                            break
-                                except Exception:
-                                    continue
-                            
-                            # 如果找到了PID，认为表格已加载完成
-                            if pid_found:
-                                target_table_container = temp_container
-                                table_ready = True
-                                print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据，已找到PID（等待 {retry_count + 1} 次）")
-                                break
-                            else:
-                                # 如果表格有足够的数据行（超过5行），即使没有找到PID，也认为表格已加载完成
-                                # 因为PID可能不在前10行，但数据已经加载完成
-                                if row_count > 5:
-                                    target_table_container = temp_container
-                                    table_ready = True
-                                    print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据（等待 {retry_count + 1} 次）")
-                                    print(f"    - 注意：未在前10行找到PID，但表格有足够数据，认为已加载完成")
-                                    break
-                                else:
-                                    if retry_count % 3 == 0:
-                                        print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，表格有数据但未找到PID，继续等待...")
-                        else:
-                            # 如果没有PID，只要有数据行就认为加载完成
-                            target_table_container = current_sls_frame.locator(f'#{container_id}')
-                            table_ready = True
-                            print(f"  ✓ 找到表格容器: {container_id}，包含 {row_count} 行数据（等待 {retry_count + 1} 次）")
-                            break
-                    else:
-                        if retry_count % 3 == 0:
-                            print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，表格容器已找到但数据未加载")
-            else:
-                if retry_count % 3 == 0:
-                    print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，标题元素未找到")
-        except Exception as e:
-            if retry_count % 3 == 0:
-                print(f"    - 等待中... ({retry_count + 1}/{max_wait_retries})，检查时出错: {type(e).__name__}")
-        
-        retry_count += 1
-        if not table_ready and retry_count < max_wait_retries:
-            await asyncio.sleep(1)
-    
-    if not table_ready:
-        print(f"  ⚠ 等待表格数据加载超时（已等待 {retry_count} 秒），尝试继续查找...")
-    
-    return (table_ready, target_table_container, current_sls_frame)
-
-
 async def _extract_table_data(
     sls_frame,
     pid: Optional[str],
@@ -687,15 +516,11 @@ async def _select_time_range_only(
         # 等待数据加载并提取数据
         print(f"\n步骤: 等待数据加载并提取成功率")
         
-        # 使用统一的等待表格加载函数（切换时间范围后需要重新获取iframe引用）
-        table_ready, target_table_container, sls_frame = await _wait_for_table_ready(
-            page, sls_frame, pid, max_wait_retries=30, reacquire_frame=True
-        )
+        # 切换时间范围后，等待数据加载（简化等待逻辑，直接等待后提取数据）
+        print("  - 等待数据加载完成...")
+        await asyncio.sleep(3)  # 等待3秒让数据有时间加载
         
-        await asyncio.sleep(1)
-        
-        # 提取数据（使用统一的提取函数）
-        # 重新获取sls_frame引用（确保使用最新的引用）
+        # 重新获取sls_frame引用（切换时间范围后iframe可能重新加载）
         current_sls_frame = await _find_sls_iframe(page)
         
         if not current_sls_frame:
@@ -1226,16 +1051,9 @@ async def query_sms_success_rate(
         print(f"步骤7: 等待数据加载并提取成功率")
         print(f"{'='*60}")
         
-        # 7. 等待数据加载完成
+        # 7. 等待数据加载完成（简化等待逻辑，直接等待后提取数据）
         print("  - 等待数据加载完成...")
-        
-        # 使用统一的等待表格加载函数（首次查询不需要重新获取iframe引用）
-        table_ready, target_table_container, sls_frame = await _wait_for_table_ready(
-            page, sls_frame, pid, max_wait_retries=20, reacquire_frame=False
-        )
-        
-        # 额外等待一段时间，确保数据完全渲染
-        await asyncio.sleep(1)
+        await asyncio.sleep(3)  # 等待3秒让数据有时间加载
         
         # 8. 从表格中提取数据（使用统一的提取函数）
         extract_result = await _extract_table_data(sls_frame, pid, time_range)
