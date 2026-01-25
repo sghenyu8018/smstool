@@ -232,21 +232,26 @@ async def query_qualification_work_order(
         await query_button.click()
         await asyncio.sleep(2)  # 等待查询结果加载
         
-        # 步骤8: 查找所有包含"短信资质"的行
+        # 步骤8: 查找所有包含"短信资质"的行，提取工单号列表
         print("正在查找所有包含'短信资质'的行...")
         sms_rows = await page.query_selector_all('tr.ant-table-row')
-        matching_rows = []
+        work_order_ids = []  # 存储工单号列表，而不是元素引用
         
         for row in sms_rows:
             try:
                 row_text = await row.inner_text()
                 if '短信资质' in row_text:
-                    matching_rows.append(row)
-                    print(f"  ✓ 找到包含'短信资质'的行")
+                    # 提取工单号并保存，而不是保存元素引用
+                    order_link = await row.query_selector('td.ant-table-cell a')
+                    if order_link:
+                        work_order_id = (await order_link.inner_text()).strip()
+                        if work_order_id:
+                            work_order_ids.append(work_order_id)
+                            print(f"  ✓ 找到包含'短信资质'的行，工单号: {work_order_id}")
             except Exception:
                 continue
         
-        if not matching_rows:
+        if not work_order_ids:
             return {
                 'success': False,
                 'work_order_id': None,
@@ -255,25 +260,52 @@ async def query_qualification_work_order(
                 'error': '未找到包含"短信资质"的行'
             }
         
-        print(f"共找到 {len(matching_rows)} 个包含'短信资质'的行，开始依次检查...")
+        print(f"共找到 {len(work_order_ids)} 个包含'短信资质'的工单，开始依次检查...")
         
-        # 步骤9-11: 对每个匹配的行，依次进入详情页面检查资质组ID
-        for idx, matching_row in enumerate(matching_rows, 1):
-            print(f"\n--- 检查第 {idx}/{len(matching_rows)} 个工单 ---")
+        # 步骤9-11: 对每个工单号，依次进入详情页面检查资质组ID
+        for idx, work_order_id_to_check in enumerate(work_order_ids, 1):
+            print(f"\n--- 检查第 {idx}/{len(work_order_ids)} 个工单 ---")
             
-            # 从匹配的行中提取工单号并点击
-            print("正在提取工单号并进入详情页面...")
-            # 在匹配的行中查找工单号链接（a标签），不依赖可变属性
-            order_link_in_row = await matching_row.query_selector('td.ant-table-cell a')
-            if not order_link_in_row:
-                print(f"  ⚠ 第 {idx} 个工单：未找到工单号链接，跳过")
+            # 如果不是第一个工单，需要返回查询页面并重新查找对应的行
+            if idx > 1:
+                print("正在返回工单查询页面...")
+                await page.goto(QUALIFICATION_ORDER_QUERY_URL, timeout=timeout, wait_until='domcontentloaded')
+                await asyncio.sleep(1)
+                
+                # 重新输入PID并查询
+                print("重新输入PID并查询...")
+                pid_input = await page.query_selector('#UserId')
+                if pid_input:
+                    await pid_input.click()
+                    await pid_input.fill('')
+                    await asyncio.sleep(0.2)
+                    await pid_input.fill(pid)
+                    await asyncio.sleep(0.3)
+                
+                query_button = await page.wait_for_selector(
+                    SELECTORS['qualification_query_button'],
+                    timeout=5000,
+                    state='visible'
+                )
+                await query_button.click()
+                await asyncio.sleep(2)  # 等待查询结果加载
+            
+            # 通过工单号查找对应的行并点击
+            print(f"正在查找工单号 {work_order_id_to_check} 并进入详情页面...")
+            try:
+                # 通过工单号文本查找对应的链接
+                order_link = await page.wait_for_selector(
+                    f'a:has-text("{work_order_id_to_check}")',
+                    timeout=10000,
+                    state='visible'
+                )
+                print(f"  ✓ 找到工单号: {work_order_id_to_check}")
+                
+                await order_link.click()
+                await asyncio.sleep(2)  # 等待详情页面加载
+            except Exception as e:
+                print(f"  ✗ 查找工单号 {work_order_id_to_check} 失败: {e}")
                 continue
-            
-            matched_work_order_id = (await order_link_in_row.inner_text()).strip()
-            print(f"  ✓ 找到工单号: {matched_work_order_id}")
-            
-            await order_link_in_row.click()
-            await asyncio.sleep(2)  # 等待详情页面加载
             
             # 获取资质组ID
             print("正在获取资质组ID...")
@@ -309,10 +341,10 @@ async def query_qualification_work_order(
             if qualification_group_id:
                 print(f"比较资质ID: 关联资质ID={qualification_id}, 资质组ID={qualification_group_id}")
                 if qualification_id == qualification_group_id:
-                    print(f"  ✓ 资质ID匹配！返回工单号: {matched_work_order_id}")
+                    print(f"  ✓ 资质ID匹配！返回工单号: {work_order_id_to_check}")
                     return {
                         'success': True,
-                        'work_order_id': matched_work_order_id,
+                        'work_order_id': work_order_id_to_check,
                         'qualification_id': qualification_id,
                         'qualification_group_id': qualification_group_id,
                         'error': None
@@ -321,39 +353,15 @@ async def query_qualification_work_order(
                     print(f"  ✗ 资质ID不匹配，继续检查下一个工单")
             else:
                 print(f"  ⚠ 未能获取到资质组ID，继续检查下一个工单")
-            
-            # 返回查询页面，准备检查下一个工单
-            if idx < len(matching_rows):
-                print("正在返回工单查询页面...")
-                await page.goto(QUALIFICATION_ORDER_QUERY_URL, timeout=timeout, wait_until='domcontentloaded')
-                await asyncio.sleep(1)
-                
-                # 重新输入PID并查询（因为返回页面后需要重新查询）
-                print("重新输入PID并查询...")
-                pid_input = await page.query_selector('#UserId')
-                if pid_input:
-                    await pid_input.click()
-                    await pid_input.fill('')
-                    await asyncio.sleep(0.2)
-                    await pid_input.fill(pid)
-                    await asyncio.sleep(0.3)
-                
-                query_button = await page.wait_for_selector(
-                    SELECTORS['qualification_query_button'],
-                    timeout=5000,
-                    state='visible'
-                )
-                await query_button.click()
-                await asyncio.sleep(2)  # 等待查询结果加载
         
         # 如果所有工单都检查完毕仍未找到匹配的
-        print(f"\n所有 {len(matching_rows)} 个工单都已检查完毕，未找到匹配的资质ID")
+        print(f"\n所有 {len(work_order_ids)} 个工单都已检查完毕，未找到匹配的资质ID")
         return {
             'success': False,
             'work_order_id': None,
             'qualification_id': qualification_id,
             'qualification_group_id': None,
-            'error': f'已检查所有包含"短信资质"的工单（共 {len(matching_rows)} 个），但未找到匹配的资质ID'
+            'error': f'已检查所有包含"短信资质"的工单（共 {len(work_order_ids)} 个），但未找到匹配的资质ID'
         }
             
     except PlaywrightTimeoutError as e:
