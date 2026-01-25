@@ -20,6 +20,7 @@ async def _select_time_range_only(
 ) -> Dict[str, any]:
     """
     只切换时间范围，不重新输入PID（内部函数）
+    从"按回车键触发搜索/选择"之后的流程开始，即直接选择时间范围
     
     Args:
         page: Playwright Page 对象
@@ -35,7 +36,7 @@ async def _select_time_range_only(
     try:
         # 获取SLS iframe（应该已经存在）
         print(f"\n{'='*60}")
-        print(f"切换时间范围（{time_range}），PID已输入，无需重新输入")
+        print(f"切换时间范围（{time_range}），PID已输入，从选择时间范围开始")
         print(f"{'='*60}")
         
         # 查找SLS iframe
@@ -56,7 +57,8 @@ async def _select_time_range_only(
                 'error': '未找到SLS iframe，请先执行完整的查询流程'
             }
         
-        # 选择时间范围（复用原有逻辑）
+        # 从"按回车键触发搜索/选择"之后的流程开始
+        # 即：直接选择时间范围（跳过输入PID和按回车键的步骤）
         print(f"\n步骤: 选择时间范围（{time_range}）")
         
         time_range_map = {
@@ -764,10 +766,10 @@ async def query_sms_success_rate(
         
         # 时间范围映射（用于查找选项）
         time_range_map = {
-            #'当天': [ '今天'],
-            #'本周': ['本周', '本周（相对）'],
-            #'一周': ['1周'],
-            #'上周': ['上周', '上周（相对）'],
+            '当天': [ '今天'],
+            '本周': ['本周', '本周（相对）'],
+            '一周': ['1周'],
+            '上周': ['上周', '上周（相对）'],
             '30天': ['30天', '30天（相对）']
         }
         
