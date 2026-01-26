@@ -327,59 +327,49 @@ async def query_qualification_work_order(
         for idx, work_order_id_to_check in enumerate(work_order_ids, 1):
             print(f"\n--- 检查第 {idx}/{len(work_order_ids)} 个工单 ---")
             
-            # 统一处理：每次检查前都返回查询页面并输入工单号查询（精确查询）
-            print("正在返回工单查询页面...")
+            # 1. 进入工单查询页面
+            print("正在进入工单查询页面...")
             await page.goto(QUALIFICATION_ORDER_QUERY_URL, timeout=timeout, wait_until='domcontentloaded')
             await asyncio.sleep(1)
             
-            # 输入工单号并查询（精确查询，无需分页查找）
+            # 2. 输入工单号并查询
             print(f"正在输入工单号 {work_order_id_to_check} 并查询...")
-            order_id_input = await page.wait_for_selector(
-                SELECTORS['qualification_order_id_input'],
-                timeout=5000,
-                state='visible'
-            )
-            await order_id_input.click()
-            await order_id_input.fill('')
-            await asyncio.sleep(0.2)
-            await order_id_input.fill(work_order_id_to_check)
-            await asyncio.sleep(0.3)
-            
-            # 点击查询按钮
-            query_button = await page.wait_for_selector(
-                SELECTORS['qualification_query_button'],
-                timeout=5000,
-                state='visible'
-            )
-            # 添加短暂延迟，避免请求过于频繁
-            await asyncio.sleep(0.5)
-            await query_button.click()
-            # 增加等待时间，确保查询完成且避免频繁请求
-            await asyncio.sleep(3)  # 等待查询结果加载
-            
-            # 通过工单号查找对应的行并点击（精确查询后通常在第一页就能找到）
-            print(f"正在查找工单号 {work_order_id_to_check} 并进入详情页面...")
             try:
-                # 精确查询后，工单号应该在第一页
+                order_id_input = await page.wait_for_selector(
+                    SELECTORS['qualification_order_id_input'],
+                    timeout=timeout,
+                    state='visible'
+                )
+                await order_id_input.click()
+                await order_id_input.fill('')
+                await asyncio.sleep(0.2)
+                await order_id_input.fill(work_order_id_to_check)
+                await asyncio.sleep(0.3)
+                
+                # 3. 点击查询按钮
+                query_button = await page.wait_for_selector(
+                    SELECTORS['qualification_query_button'],
+                    timeout=5000,
+                    state='visible'
+                )
+                # 添加短暂延迟，避免请求过于频繁
+                await asyncio.sleep(0.5)
+                await query_button.click()
+                # 增加等待时间，确保查询完成且避免频繁请求
+                await asyncio.sleep(3)  # 等待查询结果加载
+                
+                # 4. 点击工单号链接进入详情页面（精确查询后应该只有一个结果）
+                print(f"正在点击工单号 {work_order_id_to_check} 进入详情页面...")
                 order_link = await page.wait_for_selector(
                     f'a:has-text("{work_order_id_to_check}")',
                     timeout=10000,
                     state='visible'
                 )
-                print(f"  ✓ 找到工单号: {work_order_id_to_check}")
-                
                 await order_link.click()
                 await asyncio.sleep(2)  # 等待详情页面加载
+                print(f"  ✓ 已进入工单号 {work_order_id_to_check} 的详情页面")
             except Exception as e:
-                print(f"  ✗ 查找工单号 {work_order_id_to_check} 失败: {e}")
-                continue
-            
-            # 点击工单号链接
-            try:
-                await order_link.click()
-                await asyncio.sleep(2)  # 等待详情页面加载
-            except Exception as e:
-                print(f"  ✗ 点击工单号链接失败: {e}")
+                print(f"  ✗ 查询工单号 {work_order_id_to_check} 失败: {e}")
                 continue
             
             # 获取资质组ID
