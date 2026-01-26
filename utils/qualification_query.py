@@ -156,33 +156,6 @@ async def query_qualification_work_order(
         await page.goto(QUALIFICATION_ORDER_QUERY_URL, timeout=timeout, wait_until='domcontentloaded')
         await asyncio.sleep(1)
         
-        # 步骤6.5: 设置每页显示100条（减少分页次数，提高效率）
-        print("正在设置每页显示100条...")
-        try:
-            # 查找分页器中的下拉框（ant-select）
-            page_size_select = await page.query_selector('li.ant-pagination-options .ant-select')
-            if page_size_select:
-                # 点击下拉框打开选项
-                await page_size_select.click()
-                await asyncio.sleep(0.5)  # 等待下拉菜单打开
-                
-                # 选择"100 条/页"选项
-                option_100 = await page.wait_for_selector(
-                    'div.ant-select-item:has-text("100 条/页")',
-                    timeout=3000,
-                    state='visible'
-                )
-                if option_100:
-                    await option_100.click()
-                    await asyncio.sleep(0.5)  # 等待选择生效
-                    print("  ✓ 已设置每页显示100条")
-                else:
-                    print("  ⚠ 未找到'100 条/页'选项，使用默认设置")
-            else:
-                print("  ⚠ 未找到分页器下拉框，使用默认设置")
-        except Exception as e:
-            print(f"  ⚠ 设置每页显示条数失败: {e}，继续使用默认设置")
-        
         # 步骤7: 输入PID并查询
         print(f"正在输入PID: {pid}")
         # 尝试多种PID输入框选择器（按优先级排序）
@@ -236,6 +209,33 @@ async def query_qualification_work_order(
         await query_button.click()
         # 增加等待时间，确保查询完成且避免频繁请求
         await asyncio.sleep(3)  # 等待查询结果加载
+        
+        # 步骤7.5: 设置每页显示100条（在查询结果加载后设置，减少分页次数，提高效率）
+        print("正在设置每页显示100条...")
+        try:
+            # 查找分页器中的下拉框（ant-select）
+            page_size_select = await page.query_selector('li.ant-pagination-options .ant-select')
+            if page_size_select:
+                # 点击下拉框打开选项
+                await page_size_select.click()
+                await asyncio.sleep(0.5)  # 等待下拉菜单打开
+                
+                # 选择"100 条/页"选项
+                option_100 = await page.wait_for_selector(
+                    'div.ant-select-item:has-text("100 条/页")',
+                    timeout=3000,
+                    state='visible'
+                )
+                if option_100:
+                    await option_100.click()
+                    await asyncio.sleep(0.5)  # 等待选择生效
+                    print("  ✓ 已设置每页显示100条")
+                else:
+                    print("  ⚠ 未找到'100 条/页'选项，使用默认设置")
+            else:
+                print("  ⚠ 未找到分页器下拉框，使用默认设置")
+        except Exception as e:
+            print(f"  ⚠ 设置每页显示条数失败: {e}，继续使用默认设置")
         
         # 步骤8: 查找所有包含"短信资质"的行，提取工单号列表（支持分页）
         print("正在查找所有包含'短信资质'的行...")
