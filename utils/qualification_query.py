@@ -89,17 +89,16 @@ async def query_qualification_work_order(
         
         # 步骤3: 点击查询按钮
         print("正在点击查询按钮...")
-        # 等待工单查询页面上的“查 询”按钮出现（使用 Ant Design 风格的主按钮，带有文本“查 询”）
-        # 步骤3: 等待“查 询”按钮出现，确保该按钮是页面上 Ant Design 风格的主按钮（具有类名 ant-btn-primary 并带有文本“查 询”）。
-        # 使用 SELECTORS['qualification_query_button'] 定位，使选择器更健壮且不易受页面变动影响。
-        # 如果 5 秒内未出现此按钮会抛出超时异常，后续操作将无法进行。
         query_button = await page.wait_for_selector(
             SELECTORS['qualification_query_button'],
             timeout=5000,
             state='visible'
         )
+        # 添加短暂延迟，避免请求过于频繁
+        await asyncio.sleep(0.5)
         await query_button.click()
-        await asyncio.sleep(2)  # 等待查询结果加载
+        # 增加等待时间，确保查询完成且避免频繁请求
+        await asyncio.sleep(3)  # 等待查询结果加载
         
         # 步骤4: 点击工单号链接，进入详情页面
         print("正在点击工单号链接，进入详情页面...")
@@ -205,8 +204,11 @@ async def query_qualification_work_order(
             timeout=5000,
             state='visible'
         )
+        # 添加短暂延迟，避免请求过于频繁
+        await asyncio.sleep(0.5)
         await query_button.click()
-        await asyncio.sleep(2)  # 等待查询结果加载
+        # 增加等待时间，确保查询完成且避免频繁请求
+        await asyncio.sleep(3)  # 等待查询结果加载
         
         # 步骤8: 查找所有包含"短信资质"的行，提取工单号列表（支持分页）
         print("正在查找所有包含'短信资质'的行...")
@@ -319,8 +321,11 @@ async def query_qualification_work_order(
                     timeout=5000,
                     state='visible'
                 )
+                # 添加短暂延迟，避免请求过于频繁
+                await asyncio.sleep(0.5)
                 await query_button.click()
-                await asyncio.sleep(2)  # 等待查询结果加载
+                # 增加等待时间，确保查询完成且避免频繁请求
+                await asyncio.sleep(3)  # 等待查询结果加载
             
             # 通过工单号查找对应的行并点击（支持分页查找）
             print(f"正在查找工单号 {work_order_id_to_check} 并进入详情页面...")
