@@ -197,6 +197,83 @@ async def query_qualification_work_order(
         else:
             print(f"  ⚠ PID填写后验证不一致: 期望={pid}, 实际={input_value}")
         
+        # 步骤7.1: 选择审核状态为"审核通过"
+        print("正在选择审核状态为'审核通过'...")
+        try:
+            # 查找审核状态下拉列表（通过input的ID定位，然后找到父级select容器）
+            audit_status_input = await page.query_selector('#AuditStatus')
+            audit_status_select = None
+            
+            if audit_status_input:
+                # 使用locator找到#AuditStatus的父级ant-select
+                try:
+                    audit_status_locator = page.locator('#AuditStatus')
+                    audit_status_select = await audit_status_locator.locator('xpath=ancestor::div[contains(@class, "ant-select")]').first.element_handle()
+                except Exception:
+                    pass
+            
+            # 如果方法1失败，通过label查找对应的form-item中的select
+            if not audit_status_select:
+                try:
+                    label_locator = page.locator('label[for="AuditStatus"]')
+                    audit_status_select = await label_locator.locator('xpath=ancestor::div[contains(@class, "ant-form-item")]//div[contains(@class, "ant-select")]').first.element_handle()
+                except Exception:
+                    pass
+            
+            # 如果前两种方法都失败，查找所有ant-select，检查哪个包含#AuditStatus
+            if not audit_status_select:
+                all_selects = await page.query_selector_all('div.ant-select')
+                for select in all_selects:
+                    has_audit_input = await select.query_selector('#AuditStatus')
+                    if has_audit_input:
+                        audit_status_select = select
+                        break
+            
+            if audit_status_select:
+                # 检查当前是否已选择"审核通过"
+                current_selection = await audit_status_select.query_selector('span.ant-select-selection-item')
+                if current_selection:
+                    current_text = await current_selection.inner_text()
+                    if current_text.strip() == '审核通过':
+                        print("  ✓ 审核状态已为'审核通过'，无需修改")
+                    else:
+                        # 点击下拉列表打开选项
+                        await audit_status_select.click()
+                        await asyncio.sleep(0.5)  # 等待下拉菜单打开
+                        
+                        # 选择"审核通过"选项
+                        option_approved = await page.wait_for_selector(
+                            'div.ant-select-item:has-text("审核通过")',
+                            timeout=3000,
+                            state='visible'
+                        )
+                        if option_approved:
+                            await option_approved.click()
+                            await asyncio.sleep(0.5)  # 等待选择生效
+                            print("  ✓ 已选择审核状态为'审核通过'")
+                        else:
+                            print("  ⚠ 未找到'审核通过'选项，继续使用当前设置")
+                else:
+                    # 如果没有当前选择，直接选择"审核通过"
+                    await audit_status_select.click()
+                    await asyncio.sleep(0.5)  # 等待下拉菜单打开
+                    
+                    option_approved = await page.wait_for_selector(
+                        'div.ant-select-item:has-text("审核通过")',
+                        timeout=3000,
+                        state='visible'
+                    )
+                    if option_approved:
+                        await option_approved.click()
+                        await asyncio.sleep(0.5)  # 等待选择生效
+                        print("  ✓ 已选择审核状态为'审核通过'")
+                    else:
+                        print("  ⚠ 未找到'审核通过'选项，继续使用当前设置")
+            else:
+                print("  ⚠ 未找到审核状态下拉列表，继续使用默认设置")
+        except Exception as e:
+            print(f"  ⚠ 选择审核状态失败: {e}，继续使用默认设置")
+        
         # 点击查询按钮
         print("正在点击查询按钮...")
         query_button = await page.wait_for_selector(
