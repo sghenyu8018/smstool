@@ -15,7 +15,7 @@ sys.path.insert(0, str(project_root))
 
 from login_module import create_playwright_session
 from utils.constants import SUCCESS_RATE_QUERY_URL
-
+TEST_URL = 'https://zh.wikipedia.org/wiki/%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD%E8%A1%8C%E6%94%BF%E5%8C%BA%E5%88%92'
 
 # 定义要测试的窗口尺寸
 VIEWPORT_SIZES = [
