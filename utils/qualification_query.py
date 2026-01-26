@@ -327,112 +327,51 @@ async def query_qualification_work_order(
         for idx, work_order_id_to_check in enumerate(work_order_ids, 1):
             print(f"\n--- 检查第 {idx}/{len(work_order_ids)} 个工单 ---")
             
-            # 如果不是第一个工单，需要返回查询页面并重新查找对应的行
-            if idx > 1:
-                print("正在返回工单查询页面...")
-                await page.goto(QUALIFICATION_ORDER_QUERY_URL, timeout=timeout, wait_until='domcontentloaded')
-                await asyncio.sleep(1)
-                
-                # 设置每页显示100条（如果还未设置）
-                try:
-                    page_size_select = await page.query_selector('li.ant-pagination-options .ant-select')
-                    if page_size_select:
-                        current_size = await page.query_selector('span.ant-select-selection-item')
-                        if current_size:
-                            current_text = await current_size.inner_text()
-                            if '100 条/页' not in current_text:
-                                await page_size_select.click()
-                                await asyncio.sleep(0.5)
-                                option_100 = await page.wait_for_selector(
-                                    'div.ant-select-item:has-text("100 条/页")',
-                                    timeout=3000,
-                                    state='visible'
-                                )
-                                if option_100:
-                                    await option_100.click()
-                                    await asyncio.sleep(0.5)
-                except Exception:
-                    pass  # 如果设置失败，继续执行
-                
-                # 重新输入PID并查询
-                print("重新输入PID并查询...")
-                pid_input = await page.query_selector('#UserId')
-                if pid_input:
-                    await pid_input.click()
-                    await pid_input.fill('')
-                    await asyncio.sleep(0.2)
-                    await pid_input.fill(pid)
-                    await asyncio.sleep(0.3)
-                
-                query_button = await page.wait_for_selector(
-                    SELECTORS['qualification_query_button'],
-                    timeout=5000,
+            # 返回查询页面并输入工单号查询（所有工单都统一处理）
+            print("正在返回工单查询页面...")
+            await page.goto(QUALIFICATION_ORDER_QUERY_URL, timeout=timeout, wait_until='domcontentloaded')
+            await asyncio.sleep(1)
+            
+            # 输入工单号并查询（更精确的查询方式）
+            print(f"正在输入工单号 {work_order_id_to_check} 并查询...")
+            order_id_input = await page.wait_for_selector(
+                SELECTORS['qualification_order_id_input'],
+                timeout=5000,
+                state='visible'
+            )
+            await order_id_input.click()
+            await order_id_input.fill('')
+            await asyncio.sleep(0.2)
+            await order_id_input.fill(work_order_id_to_check)
+            await asyncio.sleep(0.3)
+            
+            # 点击查询按钮
+            query_button = await page.wait_for_selector(
+                SELECTORS['qualification_query_button'],
+                timeout=5000,
+                state='visible'
+            )
+            # 添加短暂延迟，避免请求过于频繁
+            await asyncio.sleep(0.5)
+            await query_button.click()
+            # 增加等待时间，确保查询完成且避免频繁请求
+            await asyncio.sleep(3)  # 等待查询结果加载
+            
+            # 通过工单号查找对应的行并点击（精确查询，通常在第一页）
+            print(f"正在查找工单号 {work_order_id_to_check} 并进入详情页面...")
+            try:
+                # 通过工单号文本查找对应的链接（精确查询，应该在第一页）
+                order_link = await page.wait_for_selector(
+                    f'a:has-text("{work_order_id_to_check}")',
+                    timeout=10000,
                     state='visible'
                 )
-                # 添加短暂延迟，避免请求过于频繁
-                await asyncio.sleep(0.5)
-                await query_button.click()
-                # 增加等待时间，确保查询完成且避免频繁请求
-                await asyncio.sleep(3)  # 等待查询结果加载
-            
-            # 通过工单号查找对应的行并点击（支持分页查找）
-            print(f"正在查找工单号 {work_order_id_to_check} 并进入详情页面...")
-            order_link = None
-            page_num = 1
-            
-            # 遍历所有页面查找工单号
-            while True:
-                try:
-                    # 尝试在当前页查找工单号
-                    order_link = await page.query_selector(f'a:has-text("{work_order_id_to_check}")')
-                    if order_link:
-                        is_visible = await order_link.is_visible()
-                        if is_visible:
-                            print(f"  ✓ 在第 {page_num} 页找到工单号: {work_order_id_to_check}")
-                            break
-                        else:
-                            order_link = None
-                except Exception:
-                    pass
+                print(f"  ✓ 找到工单号: {work_order_id_to_check}")
                 
-                # 检查是否有下一页
-                has_next_page = False
-                try:
-                    next_page_button = await page.query_selector('li.ant-pagination-next')
-                    if next_page_button:
-                        is_disabled = await next_page_button.get_attribute('aria-disabled')
-                        has_disabled_class = await next_page_button.evaluate('el => el.classList.contains("ant-pagination-disabled")')
-                        if is_disabled != 'true' and not has_disabled_class:
-                            has_next_page = True
-                except Exception:
-                    pass
-                
-                # 如果没有找到且还有下一页，点击下一页
-                if not order_link and has_next_page:
-                    try:
-                        next_page_btn = await page.query_selector('li.ant-pagination-next button')
-                        if next_page_btn:
-                            await next_page_btn.click()
-                            page_num += 1
-                            await asyncio.sleep(2)  # 等待下一页加载
-                            print(f"  未找到，翻到第 {page_num} 页继续查找...")
-                            continue
-                    except Exception:
-                        break
-                
-                # 如果找不到且没有下一页，退出循环
-                break
-            
-            if not order_link:
-                print(f"  ✗ 在所有页面中未找到工单号 {work_order_id_to_check}")
-                continue
-            
-            # 点击工单号链接
-            try:
                 await order_link.click()
                 await asyncio.sleep(2)  # 等待详情页面加载
             except Exception as e:
-                print(f"  ✗ 点击工单号链接失败: {e}")
+                print(f"  ✗ 查找工单号 {work_order_id_to_check} 失败: {e}")
                 continue
             
             # 获取资质组ID
