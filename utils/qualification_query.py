@@ -327,12 +327,12 @@ async def query_qualification_work_order(
         for idx, work_order_id_to_check in enumerate(work_order_ids, 1):
             print(f"\n--- 检查第 {idx}/{len(work_order_ids)} 个工单 ---")
             
-            # 返回查询页面并输入工单号查询（所有工单都统一处理）
+            # 统一处理：每次检查前都返回查询页面并输入工单号查询（精确查询）
             print("正在返回工单查询页面...")
             await page.goto(QUALIFICATION_ORDER_QUERY_URL, timeout=timeout, wait_until='domcontentloaded')
             await asyncio.sleep(1)
             
-            # 输入工单号并查询（更精确的查询方式）
+            # 输入工单号并查询（精确查询，无需分页查找）
             print(f"正在输入工单号 {work_order_id_to_check} 并查询...")
             order_id_input = await page.wait_for_selector(
                 SELECTORS['qualification_order_id_input'],
@@ -357,10 +357,10 @@ async def query_qualification_work_order(
             # 增加等待时间，确保查询完成且避免频繁请求
             await asyncio.sleep(3)  # 等待查询结果加载
             
-            # 通过工单号查找对应的行并点击（精确查询，通常在第一页）
+            # 通过工单号查找对应的行并点击（精确查询后通常在第一页就能找到）
             print(f"正在查找工单号 {work_order_id_to_check} 并进入详情页面...")
             try:
-                # 通过工单号文本查找对应的链接（精确查询，应该在第一页）
+                # 精确查询后，工单号应该在第一页
                 order_link = await page.wait_for_selector(
                     f'a:has-text("{work_order_id_to_check}")',
                     timeout=10000,
@@ -372,6 +372,14 @@ async def query_qualification_work_order(
                 await asyncio.sleep(2)  # 等待详情页面加载
             except Exception as e:
                 print(f"  ✗ 查找工单号 {work_order_id_to_check} 失败: {e}")
+                continue
+            
+            # 点击工单号链接
+            try:
+                await order_link.click()
+                await asyncio.sleep(2)  # 等待详情页面加载
+            except Exception as e:
+                print(f"  ✗ 点击工单号链接失败: {e}")
                 continue
             
             # 获取资质组ID
