@@ -5,8 +5,14 @@
 """
 import asyncio
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
+
+# 添加项目根目录到 Python 路径，以便导入根目录的模块
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 from login_module import create_playwright_session
 from utils.constants import SUCCESS_RATE_QUERY_URL
 
