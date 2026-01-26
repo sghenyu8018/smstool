@@ -325,21 +325,64 @@ async def query_qualification_work_order(
                 await query_button.click()
                 await asyncio.sleep(2)  # 等待查询结果加载
             
-            # 通过工单号查找对应的行并点击
+            # 通过工单号查找对应的行并点击（支持分页查找）
             print(f"正在查找工单号 {work_order_id_to_check} 并进入详情页面...")
-            try:
-                # 通过工单号文本查找对应的链接
-                order_link = await page.wait_for_selector(
-                    f'a:has-text("{work_order_id_to_check}")',
-                    timeout=10000,
-                    state='visible'
-                )
-                print(f"  ✓ 找到工单号: {work_order_id_to_check}")
+            order_link = None
+            page_num = 1
+            
+            # 遍历所有页面查找工单号
+            while True:
+                try:
+                    # 尝试在当前页查找工单号
+                    order_link = await page.query_selector(f'a:has-text("{work_order_id_to_check}")')
+                    if order_link:
+                        is_visible = await order_link.is_visible()
+                        if is_visible:
+                            print(f"  ✓ 在第 {page_num} 页找到工单号: {work_order_id_to_check}")
+                            break
+                        else:
+                            order_link = None
+                except Exception:
+                    pass
                 
+                # 检查是否有下一页
+                has_next_page = False
+                try:
+                    next_page_button = await page.query_selector('li.ant-pagination-next')
+                    if next_page_button:
+                        is_disabled = await next_page_button.get_attribute('aria-disabled')
+                        has_disabled_class = await next_page_button.evaluate('el => el.classList.contains("ant-pagination-disabled")')
+                        if is_disabled != 'true' and not has_disabled_class:
+                            has_next_page = True
+                except Exception:
+                    pass
+                
+                # 如果没有找到且还有下一页，点击下一页
+                if not order_link and has_next_page:
+                    try:
+                        next_page_btn = await page.query_selector('li.ant-pagination-next button')
+                        if next_page_btn:
+                            await next_page_btn.click()
+                            page_num += 1
+                            await asyncio.sleep(2)  # 等待下一页加载
+                            print(f"  未找到，翻到第 {page_num} 页继续查找...")
+                            continue
+                    except Exception:
+                        break
+                
+                # 如果找不到且没有下一页，退出循环
+                break
+            
+            if not order_link:
+                print(f"  ✗ 在所有页面中未找到工单号 {work_order_id_to_check}")
+                continue
+            
+            # 点击工单号链接
+            try:
                 await order_link.click()
                 await asyncio.sleep(2)  # 等待详情页面加载
             except Exception as e:
-                print(f"  ✗ 查找工单号 {work_order_id_to_check} 失败: {e}")
+                print(f"  ✗ 点击工单号链接失败: {e}")
                 continue
             
             # 获取资质组ID
