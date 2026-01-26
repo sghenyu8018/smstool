@@ -9,6 +9,7 @@
 - ✅ **自动登录**：支持 SSO 自动登录，会话自动保存和恢复
 - ✅ **短信签名查询**：根据客户 PID 和签名名称查询工单号
 - ✅ **成功率查询**：查询短信签名的成功率统计数据，支持多个时间范围（当天、本周、一周、上周、30天）
+- ✅ **资质工单查询**：根据短信签名工单号查找匹配的资质工单号，支持自动遍历所有页面
 - ✅ **多行数据支持**：自动识别多行工单号，选择最新的数据
 - ✅ **会话管理**：自动管理浏览器会话，支持24小时有效期验证
 - ✅ **可扩展设计**：模块化架构，便于添加新的查询功能
@@ -219,6 +220,50 @@ async def query_success_rate():
 asyncio.run(query_success_rate())
 ```
 
+### 资质工单查询示例
+
+```python
+import asyncio
+from login_module import create_playwright_session
+from utils.qualification_query import query_qualification_work_order
+
+async def query_qualification():
+    # 创建会话
+    playwright, browser, context, page = await create_playwright_session(headless=False)
+    
+    try:
+        # 执行资质工单查询
+        # 功能说明：根据短信签名工单号，查找匹配的资质工单号
+        # 流程：1. 通过工单号获取关联资质ID
+        #      2. 通过PID查询所有包含"短信资质"的工单
+        #      3. 遍历所有工单，找到资质组ID与关联资质ID匹配的工单号
+        result = await query_qualification_work_order(
+            page=page,
+            work_order_id="20051875589",  # 短信签名工单号
+            pid="100000041462041"  # 客户PID（可选，也可从环境变量 SMS_PID 读取）
+        )
+        
+        # 处理结果
+        if result['success']:
+            print(f"✓ 查询成功！")
+            print(f"匹配的资质工单号: {result['work_order_id']}")
+            print(f"关联资质ID: {result['qualification_id']}")
+            print(f"资质组ID: {result['qualification_group_id']}")
+        else:
+            print(f"✗ 查询失败: {result['error']}")
+            if result.get('qualification_id'):
+                print(f"  已获取关联资质ID: {result['qualification_id']}")
+            if result.get('qualification_group_id'):
+                print(f"  已获取资质组ID: {result['qualification_group_id']}")
+            
+    finally:
+        await context.close()
+        await browser.close()
+        await playwright.stop()
+
+asyncio.run(query_qualification())
+```
+
 ## 模块说明
 
 ### login_module.py
@@ -246,7 +291,7 @@ playwright, browser, context, page = await create_playwright_session(
 工具模块已拆分为多个子模块，提高代码可读性和可维护性：
 
 #### utils/constants.py
-- 页面URL配置（`SIGN_QUERY_URL`, `SUCCESS_RATE_QUERY_URL`）
+- 页面URL配置（`SIGN_QUERY_URL`, `SUCCESS_RATE_QUERY_URL`, `QUALIFICATION_ORDER_QUERY_URL`）
 - 页面元素选择器配置（`SELECTORS`）
 
 #### utils/helpers.py
@@ -259,6 +304,12 @@ playwright, browser, context, page = await create_playwright_session(
 
 #### utils/sms_success_rate_query.py
 - `query_sms_success_rate()`: 短信签名成功率查询功能
+
+#### utils/qualification_query.py
+- `query_qualification_work_order()`: 资质工单查询功能
+  - 根据短信签名工单号查找匹配的资质工单号
+  - 支持自动遍历所有包含"短信资质"的工单（支持分页）
+  - 通过比较关联资质ID和资质组ID来匹配工单
 
 #### utils/sms_query_tools.py（向后兼容层）
 
@@ -324,6 +375,23 @@ from utils import query_sms_signature, query_sms_success_rate
        'data': List[Dict],        # 所有数据行（包含详细信息）
        'total_count': int,        # 数据行总数
        'error': str               # 错误信息（失败时）
+   }
+   ```
+
+3. **`query_qualification_work_order(page, work_order_id, pid)`** - 查询资质工单
+   - 根据短信签名工单号查找匹配的资质工单号
+   - 自动遍历所有包含"短信资质"的工单（支持分页）
+   - 通过比较关联资质ID和资质组ID来匹配工单
+   - 可从环境变量读取PID
+
+   **返回值：**
+   ```python
+   {
+       'success': bool,                    # 是否查询成功
+       'work_order_id': str,               # 匹配的资质工单号（成功时）
+       'qualification_id': str,            # 关联资质ID
+       'qualification_group_id': str,      # 资质组ID
+       'error': str                        # 错误信息（失败时）
    }
    ```
 
@@ -501,6 +569,7 @@ smstool/
 │   ├── helpers.py          # 辅助函数
 │   ├── sms_signature_query.py  # 签名查询功能
 │   ├── sms_success_rate_query.py  # 成功率查询功能
+│   ├── qualification_query.py  # 资质工单查询功能
 │   └── sms_query_tools.py  # 向后兼容层
 ├── requirements.txt         # Python 依赖
 ├── README.md                # 项目文档

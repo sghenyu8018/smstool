@@ -7,6 +7,14 @@
 
 ## [未发布]
 
+### 改进
+- **更新 README.md 文档**
+  - 添加资质工单查询功能的完整使用示例
+  - 在功能特性部分添加资质工单查询说明
+  - 在模块说明部分添加 `utils/qualification_query.py` 的详细说明
+  - 添加 `query_qualification_work_order` 函数的参数和返回值说明
+  - 更新项目结构图，包含资质工单查询模块
+
 ### 新增
 - **添加测试文件 test/test_local.py**
   - 新增测试定位器功能的测试脚本
