@@ -89,6 +89,10 @@ async def query_qualification_work_order(
         
         # 步骤3: 点击查询按钮
         print("正在点击查询按钮...")
+        # 等待工单查询页面上的“查 询”按钮出现（使用 Ant Design 风格的主按钮，带有文本“查 询”）
+        # 步骤3: 等待“查 询”按钮出现，确保该按钮是页面上 Ant Design 风格的主按钮（具有类名 ant-btn-primary 并带有文本“查 询”）。
+        # 使用 SELECTORS['qualification_query_button'] 定位，使选择器更健壮且不易受页面变动影响。
+        # 如果 5 秒内未出现此按钮会抛出超时异常，后续操作将无法进行。
         query_button = await page.wait_for_selector(
             SELECTORS['qualification_query_button'],
             timeout=5000,
@@ -157,57 +161,29 @@ async def query_qualification_work_order(
         print(f"正在输入PID: {pid}")
         # 尝试多种PID输入框选择器（按优先级排序）
         pid_input = None
-        pid_selectors = [
-            '#UserId',  # 最准确的选择器（根据实际页面元素）
-            # 'input#UserId',  # 备选：带标签的选择器
-            # '#PartnerId',  # 备选：其他可能的ID
-            # 'input[placeholder*="PID"]',
-            # 'input[placeholder*="pid"]',
-            # 'input[placeholder*="客户PID"]',
-            # 'input[placeholder="请输入"]'  # 通用占位符（最后尝试）
-        ]
-        
-        for selector in pid_selectors:
+        pid_selector = [
+            '#UserId',
+            'input#UserId', 
+            'input[placeholder="请输入"]'
+          ]
+        for selector in pid_selector:
             try:
-                pid_input = await page.query_selector(selector)
-                if pid_input:
-                    is_visible = await pid_input.is_visible()
-                    if is_visible:
-                        print(f"  ✓ 找到PID输入框: {selector}")
-                        break
-                    else:
-                        print(f"  - 找到元素但不可见: {selector}")
-                        pid_input = None
-            except Exception as e:
-                print(f"  - 选择器 {selector} 查找失败: {e}")
+                #wait for selector
+                pid_input = await page.wait_for_selector(selector, timeout=5000, state='visible')
+                break
+            except Exception as e:  
+                print(f"  - 查找 {selector} 失败: {e}")
                 continue
-        
         if not pid_input:
-            # 输出更详细的调试信息
-            print("  ✗ 未找到PID输入框，尝试列出所有输入框...")
-            try:
-                all_inputs = await page.query_selector_all('input[type="text"]')
-                print(f"  - 页面中共找到 {len(all_inputs)} 个文本输入框")
-                for i, inp in enumerate(all_inputs[:5], 1):  # 只显示前5个
-                    try:
-                        inp_id = await inp.get_attribute('id')
-                        inp_placeholder = await inp.get_attribute('placeholder')
-                        inp_class = await inp.get_attribute('class')
-                        is_vis = await inp.is_visible()
-                        print(f"    输入框 {i}: id={inp_id}, placeholder={inp_placeholder}, class={inp_class}, visible={is_vis}")
-                    except Exception:
-                        pass
-            except Exception as e:
-                print(f"  - 列出输入框时出错: {e}")
-            
+            print("  ✗ 未找到PID输入框")
             return {
                 'success': False,
                 'work_order_id': None,
                 'qualification_id': qualification_id,
                 'qualification_group_id': None,
-                'error': '未找到PID输入框，请检查页面结构'
+                'error': '未找到PID输入框'
             }
-        
+            
         # 清空输入框并填写PID
         await pid_input.click()  # 先点击获取焦点
         await pid_input.fill('')  # 清空现有内容
@@ -244,6 +220,17 @@ async def query_qualification_work_order(
             await asyncio.sleep(1)
             
             # 查找当前页所有包含"短信资质"的行
+            # 查找当前页所有表格行，class为'ant-table-row'
+            # 这些tr元素每一行对应一个工单记录，后续会筛选出包含"短信资质"关键字的行
+            # tr元素是HTML表格中的一行（table row），在这里用于查找所有表格内的行。class为'ant-table-row'表示它们是Ant Design表格中的数据行。
+            # 这里的 class="ant-table-row" 是一个 HTML 元素的类属性（class），用于标记该元素属于哪一类样式或功能。
+            # 在 HTML/CSS 中，class 用于为元素添加样式，或前端框架（如Ant Design）根据 class 进行元素识别和管理。
+            # 这里我们通过选择器 'tr.ant-table-row' 查找所有 class 包含 ant-table-row 的 <tr> 表格行，代表每一行数据记录。
+            # 解释：HTML中的"类属性"（class attribute）用于为元素指定一个或多个类别名称（class names），
+            # 这些类别通常用于在CSS样式表中应用样式，或在JavaScript/前端框架（如Ant Design等）中定位和操作元素。
+            # 例如 <tr class="ant-table-row"> 表示该表格行属于"ant-table-row"这个类别，可以被前端样式或脚本识别。
+            # 在HTML中，表格一般由<table>标签表示，包含多个<tr>表示表格的每一行（table row）。
+            # 这里用<tr class="ant-table-row">定位每一行数据。
             sms_rows = await page.query_selector_all('tr.ant-table-row')
             current_page_count = 0
             
