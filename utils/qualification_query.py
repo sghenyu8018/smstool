@@ -9,6 +9,72 @@ from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 from .constants import QUALIFICATION_ORDER_QUERY_URL, SELECTORS
 
 
+async def click_query_button_with_retry(
+    page: Page,
+    selector: str = None,
+    max_retries: int = 3,
+    delay_before: float = 0.5,
+    delay_after: float = 3,
+    retry_delay: float = 2,
+    print_message: bool = True
+) -> bool:
+    """
+    点击查询按钮，包含重试逻辑
+    
+    Args:
+        page: Playwright Page 对象
+        selector: 查询按钮选择器（如果不提供，使用默认选择器）
+        max_retries: 最大重试次数，默认3次
+        delay_before: 点击前的延迟（秒）
+        delay_after: 点击后的延迟（秒）
+        retry_delay: 重试前的延迟（秒）
+        print_message: 是否打印消息
+        
+    Returns:
+        bool: 是否成功点击
+    """
+    if selector is None:
+        selector = SELECTORS['qualification_query_button']
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            if print_message:
+                if attempt > 1:
+                    print(f"正在点击查询按钮（第 {attempt} 次尝试）...")
+                else:
+                    print("正在点击查询按钮...")
+            
+            query_button = await page.wait_for_selector(
+                selector,
+                timeout=5000,
+                state='visible'
+            )
+            
+            # 添加短暂延迟，避免请求过于频繁
+            await asyncio.sleep(delay_before)
+            await query_button.click()
+            
+            # 增加等待时间，确保查询完成且避免频繁请求
+            await asyncio.sleep(delay_after)
+            
+            if print_message:
+                print("  ✓ 查询按钮已点击")
+            return True
+            
+        except Exception as e:
+            if attempt < max_retries:
+                if print_message:
+                    print(f"  ⚠ 点击查询按钮失败（第 {attempt} 次尝试）: {e}")
+                    print(f"  ⚠ {retry_delay} 秒后重试...")
+                await asyncio.sleep(retry_delay)
+            else:
+                if print_message:
+                    print(f"  ✗ 点击查询按钮失败（已重试 {max_retries} 次）: {e}")
+                return False
+    
+    return False
+
+
 async def query_qualification_work_order(
     page: Page,
     work_order_id: str,
@@ -87,18 +153,22 @@ async def query_qualification_work_order(
         await order_id_input.fill(work_order_id)
         await asyncio.sleep(0.5)
         
-        # 步骤3: 点击查询按钮
-        print("正在点击查询按钮...")
-        query_button = await page.wait_for_selector(
-            SELECTORS['qualification_query_button'],
-            timeout=5000,
-            state='visible'
+        # 步骤3: 点击查询按钮（带重试逻辑）
+        success = await click_query_button_with_retry(
+            page,
+            selector=SELECTORS['qualification_query_button'],
+            max_retries=3,
+            delay_before=0.5,
+            delay_after=3
         )
-        # 添加短暂延迟，避免请求过于频繁
-        await asyncio.sleep(0.5)
-        await query_button.click()
-        # 增加等待时间，确保查询完成且避免频繁请求
-        await asyncio.sleep(3)  # 等待查询结果加载
+        if not success:
+            return {
+                'success': False,
+                'work_order_id': None,
+                'qualification_id': None,
+                'qualification_group_id': None,
+                'error': '点击查询按钮失败，已重试3次'
+            }
         
         # 步骤4: 点击工单号链接，进入详情页面
         print("正在点击工单号链接，进入详情页面...")
@@ -274,18 +344,22 @@ async def query_qualification_work_order(
         except Exception as e:
             print(f"  ⚠ 选择审核状态失败: {e}，继续使用默认设置")
         
-        # 点击查询按钮
-        print("正在点击查询按钮...")
-        query_button = await page.wait_for_selector(
-            SELECTORS['qualification_query_button'],
-            timeout=5000,
-            state='visible'
+        # 点击查询按钮（带重试逻辑）
+        success = await click_query_button_with_retry(
+            page,
+            selector=SELECTORS['qualification_query_button'],
+            max_retries=3,
+            delay_before=0.5,
+            delay_after=3
         )
-        # 添加短暂延迟，避免请求过于频繁
-        await asyncio.sleep(0.5)
-        await query_button.click()
-        # 增加等待时间，确保查询完成且避免频繁请求
-        await asyncio.sleep(3)  # 等待查询结果加载
+        if not success:
+            return {
+                'success': False,
+                'work_order_id': None,
+                'qualification_id': qualification_id,
+                'qualification_group_id': None,
+                'error': '点击查询按钮失败，已重试3次'
+            }
         
         # 步骤7.5: 设置每页显示100条（在查询结果加载后设置，减少分页次数，提高效率）
         print("正在设置每页显示100条...")
@@ -423,17 +497,17 @@ async def query_qualification_work_order(
                 await order_id_input.fill(work_order_id_to_check)
                 await asyncio.sleep(0.3)
                 
-                # 3. 点击查询按钮
-                query_button = await page.wait_for_selector(
-                    SELECTORS['qualification_query_button'],
-                    timeout=5000,
-                    state='visible'
+                # 3. 点击查询按钮（带重试逻辑）
+                success = await click_query_button_with_retry(
+                    page,
+                    selector=SELECTORS['qualification_query_button'],
+                    max_retries=3,
+                    delay_before=0.5,
+                    delay_after=3
                 )
-                # 添加短暂延迟，避免请求过于频繁
-                await asyncio.sleep(0.5)
-                await query_button.click()
-                # 增加等待时间，确保查询完成且避免频繁请求
-                await asyncio.sleep(3)  # 等待查询结果加载
+                if not success:
+                    print(f"  ✗ 点击查询按钮失败，跳过工单号 {work_order_id_to_check}")
+                    continue
                 
                 # 4. 点击工单号链接进入详情页面（精确查询后应该只有一个结果）
                 print(f"正在点击工单号 {work_order_id_to_check} 进入详情页面...")
