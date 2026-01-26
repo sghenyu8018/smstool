@@ -219,19 +219,9 @@ async def query_qualification_work_order(
             # 等待当前页的表格加载
             await asyncio.sleep(1)
             
-            # 查找当前页所有包含"短信资质"的行
-            # 查找当前页所有表格行，class为'ant-table-row'
-            # 这些tr元素每一行对应一个工单记录，后续会筛选出包含"短信资质"关键字的行
-            # tr元素是HTML表格中的一行（table row），在这里用于查找所有表格内的行。class为'ant-table-row'表示它们是Ant Design表格中的数据行。
-            # 这里的 class="ant-table-row" 是一个 HTML 元素的类属性（class），用于标记该元素属于哪一类样式或功能。
-            # 在 HTML/CSS 中，class 用于为元素添加样式，或前端框架（如Ant Design）根据 class 进行元素识别和管理。
-            # 这里我们通过选择器 'tr.ant-table-row' 查找所有 class 包含 ant-table-row 的 <tr> 表格行，代表每一行数据记录。
-            # 解释：HTML中的"类属性"（class attribute）用于为元素指定一个或多个类别名称（class names），
-            # 这些类别通常用于在CSS样式表中应用样式，或在JavaScript/前端框架（如Ant Design等）中定位和操作元素。
-            # 例如 <tr class="ant-table-row"> 表示该表格行属于"ant-table-row"这个类别，可以被前端样式或脚本识别。
-            # 在HTML中，表格一般由<table>标签表示，包含多个<tr>表示表格的每一行（table row）。
-            # 这里用<tr class="ant-table-row">定位每一行数据。
+            # 查找当前页所有表格行
             sms_rows = await page.query_selector_all('tr.ant-table-row')
+            print(f"  第 {page_num} 页找到 {len(sms_rows)} 行数据")
             current_page_count = 0
             
             for row in sms_rows:
@@ -277,8 +267,15 @@ async def query_qualification_work_order(
                 if next_page_button:
                     await next_page_button.click()
                     page_num += 1
-                    await asyncio.sleep(2)  # 等待下一页加载
                     print(f"  ✓ 已点击下一页，等待页面加载...")
+                    # 等待下一页数据加载完成（增加等待时间）
+                    await asyncio.sleep(3)  # 增加等待时间，确保数据加载完成
+                    
+                    # 等待表格行出现（确保数据已加载）
+                    try:
+                        await page.wait_for_selector('tr.ant-table-row', timeout=5000, state='visible')
+                    except Exception:
+                        print(f"  ⚠ 等待表格行加载超时，继续处理...")
                 else:
                     print(f"  ⚠ 未找到下一页按钮，停止分页")
                     break
